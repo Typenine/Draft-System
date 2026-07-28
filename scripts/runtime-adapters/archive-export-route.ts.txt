@@ -1,0 +1,99 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getArchiveSnapshot } from '@/lib/store';
+import type { ArchiveDraft } from '@/lib/types';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+function csvCell(value: unknown): string {
+  const text = value == null ? '' : String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function csv(rows: unknown[][]): string {
+  return `\uFEFF${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`;
+}
+
+function safeName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'draft';
+}
+
+function picksCsv(archive: ArchiveDraft): string {
+  const teamNames = new Map(archive.teams.map((team) => [team.id, team.name]));
+  const currentOwner = new Map(archive.roster.map((entry) => [entry.playerId, entry.ownerTeamId]));
+  const slotByOverall = new Map(archive.slots.map((slot) => [slot.overall, slot]));
+  const rows: unknown[][] = [[
+    'overall','round','pick_in_round','slot_team','drafting_team','current_owner','player_id','player_name','position','nfl_team','selected_at',
+  ]];
+  for (const pick of archive.picks) {
+    const slot = slotByOverall.get(pick.overall);
+    rows.push([
+      pick.overall,
+      pick.round,
+      slot?.pickInRound ?? ((pick.overall - 1) % archive.teams.length) + 1,
+      slot ? teamNames.get(slot.teamId) || slot.teamId : '',
+      teamNames.get(pick.teamId) || pick.teamId,
+      teamNames.get(currentOwner.get(pick.playerId) || '') || currentOwner.get(pick.playerId) || '',
+      pick.playerId,
+      pick.playerName,
+      pick.playerPosition,
+      pick.playerProTeam || '',
+      pick.madeAt,
+    ]);
+  }
+  return csv(rows);
+}
+
+function tradesCsv(archive: ArchiveDraft): string {
+  const rows: unknown[][] = [[
+    'trade_id','status','proposed_by','proposed_at','updated_at','teams','accepted_by','notes','asset_type','from_team','to_team',
+    'player_id','player_name','player_position','pick_overall','pick_year','pick_round','pick_original_team',
+  ]];
+  for (const trade of archive.trades) {
+    if (!trade.assets.length) {
+      rows.push([trade.id, trade.status, trade.proposedBy, trade.proposedAt, trade.updatedAt, trade.teams.join(' | '), trade.acceptedBy.join(' | '), trade.notes || '']);
+      continue;
+    }
+    for (const asset of trade.assets) {
+      rows.push([
+        trade.id, trade.status, trade.proposedBy, trade.proposedAt, trade.updatedAt, trade.teams.join(' | '), trade.acceptedBy.join(' | '), trade.notes || '',
+        asset.assetType, asset.fromTeam, asset.toTeam, asset.playerId || '', asset.playerName || '', asset.playerPosition || '', asset.pickOverall || '',
+        asset.pickYear || '', asset.pickRound || '', asset.pickOriginalTeam || '',
+      ]);
+    }
+  }
+  return csv(rows);
+}
+
+export async function GET(req: NextRequest, context: { params: Promise<{ draftId: string }> }) {
+  try {
+    const { draftId } = await context.params;
+    const archive = await getArchiveSnapshot(draftId);
+    if (!archive) return NextResponse.json({ error: 'archive_not_found' }, { status: 404 });
+    const format = (req.nextUrl.searchParams.get('format') || 'json').toLowerCase();
+    const dataset = (req.nextUrl.searchParams.get('dataset') || 'picks').toLowerCase();
+    const baseName = `${safeName(archive.name)}-${archive.completedAt?.slice(0, 10) || 'completed'}`;
+
+    if (format === 'csv') {
+      const body = dataset === 'trades' ? tradesCsv(archive) : picksCsv(archive);
+      const suffix = dataset === 'trades' ? 'trades' : 'results';
+      return new NextResponse(body, {
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${baseName}-${suffix}.csv"`,
+          'Cache-Control': 'no-store',
+        },
+      });
+    }
+
+    return new NextResponse(JSON.stringify(archive, null, 2), {
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${baseName}-full-archive.json"`,
+        'Cache-Control': 'no-store',
+      },
+    });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'archive_export_failed' }, { status: 500 });
+  }
+}
