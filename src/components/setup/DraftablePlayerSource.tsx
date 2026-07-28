@@ -1,4 +1,5 @@
 import { DRAFTABLE_PLAYER_SOURCE } from '@/data/draftable-player-source';
+import styles from './DraftablePlayerSource.module.css';
 
 const number = new Intl.NumberFormat('en-US');
 
@@ -7,7 +8,7 @@ export function DraftablePlayerSource() {
   const synced = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(source.syncedAt));
 
   return (
-    <section className="setup-section player-source-section">
+    <section className="setup-section">
       <div className="setup-section-heading">
         <div>
           <span className="eyebrow">Step 3</span>
@@ -17,9 +18,9 @@ export function DraftablePlayerSource() {
         <div className="setup-count complete"><strong>{number.format(source.playerCount)}</strong><span>players ready</span></div>
       </div>
 
-      <div className="sheet-source-card">
-        <div className="sheet-source-mark">GS</div>
-        <div className="sheet-source-details">
+      <div className={styles.card}>
+        <div className={styles.mark}>GS</div>
+        <div className={styles.details}>
           <span className="eyebrow">Google Sheets source</span>
           <h3>{source.spreadsheetTitle}</h3>
           <p><strong>{source.sheetName}</strong> tab · snapshot synced {synced}</p>
@@ -29,10 +30,10 @@ export function DraftablePlayerSource() {
             ))}
           </div>
         </div>
-        <a className="button sheet-source-link" href={source.sourceUrl} target="_blank" rel="noreferrer">Open source sheet</a>
+        <a className={`button ${styles.link}`} href={source.sourceUrl} target="_blank" rel="noreferrer">Open source sheet</a>
       </div>
 
-      <div className="sheet-source-note">
+      <div className={styles.note}>
         <strong>Player pool is already loaded.</strong>
         <span>Creating the league will insert all {number.format(source.playerCount)} players into the standalone draft database.</span>
       </div>
