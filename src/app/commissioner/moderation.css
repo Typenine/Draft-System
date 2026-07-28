@@ -106,6 +106,53 @@
   color: #fcd34d;
 }
 
+.media-admin-grid {
+  align-items: start;
+}
+
+.media-preview-panel {
+  min-height: 430px;
+}
+
+.player-media-preview-image,
+.player-media-preview-video {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: #020617;
+  object-fit: contain;
+}
+
+.media-entry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.media-entry-card {
+  display: grid;
+  gap: 5px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(15, 23, 42, .66);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.media-entry-card:hover {
+  border-color: var(--brand);
+}
+
+.media-entry-card span {
+  color: var(--muted);
+  font-size: .74rem;
+}
+
 @media (max-width: 720px) {
   .commissioner-brand-heading { align-items: flex-start; }
   .commissioner-event-logo { width: 78px; height: 78px; }
