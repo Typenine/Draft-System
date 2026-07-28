@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import './entry-flow.css';
 
 export const metadata: Metadata = {
   title: 'Draft System',
