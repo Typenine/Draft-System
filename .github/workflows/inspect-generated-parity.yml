@@ -3,6 +3,8 @@ name: Inspect generated parity
 on:
   push:
     branches: [full-east-west-parity-approval-logo]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
