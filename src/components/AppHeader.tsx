@@ -16,6 +16,8 @@ export function AppHeader({ state, showLogout = false }: { state: DraftState; sh
         <span><strong>{state.leagueName || 'Draft System'}</strong><small>Live Draft Platform</small></span>
       </Link>
       <nav>
+        {showLogout && <Link href="/commissioner">Commissioner</Link>}
+        {showLogout && <Link href="/commissioner/settings">Settings</Link>}
         <Link href="/broadcast">Broadcast</Link>
         <Link href="/archives">Archives</Link>
         {showLogout && <button className="link-button" onClick={logout}>Sign out</button>}
