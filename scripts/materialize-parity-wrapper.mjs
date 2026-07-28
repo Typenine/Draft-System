@@ -141,12 +141,6 @@ overlay = replaceRequired(
   "  const pickInRound = (currentPickIndex % picksPerRound) + 1;\n  const totalRounds = Math.max(1, draft?.rounds || 28);\n  const activeRoundForBoard = Math.min(totalRounds, Math.max(1, roundNumber));\n  const visibleRoundStart = Math.floor((activeRoundForBoard - 1) / 4) * 4 + 1;\n  const visibleRounds = Array.from({ length: Math.min(4, totalRounds - visibleRoundStart + 1) }, (_, index) => visibleRoundStart + index);",
   "overlay visible-round calculation",
 );
-overlay = replaceRequired(
-  overlay,
-  "style={{ gridTemplateColumns: '2.5rem repeat(4, 1fr)' }}",
-  "style={{ gridTemplateColumns: `2.5rem repeat(${visibleRounds.length}, 1fr)` }}",
-  "overlay grid columns",
-);
 overlay = replaceRequired(overlay, "{[1, 2, 3, 4].map(r => (", "{visibleRounds.map(r => (", "overlay round headers");
 overlay = replaceRequired(overlay, "{Array.from({ length: 12 }, (_, pickIdx) => (", "{Array.from({ length: picksPerRound }, (_, pickIdx) => (", "overlay pick rows");
 overlay = replaceRequired(overlay, "currentPickIndex % 12 === pickIdx", "currentPickIndex % picksPerRound === pickIdx", "overlay active row");
