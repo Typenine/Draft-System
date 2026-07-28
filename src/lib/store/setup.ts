@@ -6,8 +6,15 @@ import { int, mapTeam, normalizePlayers, rowsOf, slug, type Row } from './shared
 
 export const REQUIRED_TEAM_COUNT = 12;
 export const REQUIRED_ROUNDS = 28;
+export const REQUIRED_PLAYER_COUNT = REQUIRED_TEAM_COUNT * REQUIRED_ROUNDS;
 
 const PLACEHOLDER_TEAM_NAMES = ['Alpha Wolves', 'Bay City', 'Capital Club', 'Desert Storm'];
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+function safeColor(value: string | undefined, fallback: string): string {
+  const normalized = value?.trim();
+  return normalized && HEX_COLOR.test(normalized) ? normalized : fallback;
+}
 
 export async function isLeagueConfigured(): Promise<boolean> {
   await ensureSchema();
@@ -70,14 +77,15 @@ export async function setupLeague(input: {
       id,
       name: team.name.trim(),
       short_name: (team.shortName || team.name.slice(0, 4)).trim().toUpperCase(),
-      primary_color: team.primaryColor || '#2563eb',
-      secondary_color: team.secondaryColor || '#0f172a',
+      primary_color: safeColor(team.primaryColor, '#2563eb'),
+      secondary_color: safeColor(team.secondaryColor, '#0f172a'),
       logo_url: team.logoUrl || null,
       login_code_hash: hashCode(team.loginCode),
       sort_order: index,
     };
   });
   const players = normalizePlayers(input.players);
+  if (players.length < REQUIRED_PLAYER_COUNT) throw new Error(`minimum_${REQUIRED_PLAYER_COUNT}_players_required`);
   const sql = getSql();
 
   await sql`
@@ -85,7 +93,7 @@ export async function setupLeague(input: {
       (id, league_name, admin_code_hash, primary_color, secondary_color, logo_url, rounds, clock_seconds)
     VALUES
       (1, ${input.leagueName.trim() || 'Draft League'}, ${hashCode(input.adminCode)},
-       ${input.primaryColor || '#2563eb'}, ${input.secondaryColor || '#0f172a'}, ${input.logoUrl || null},
+       ${safeColor(input.primaryColor, '#2563eb')}, ${safeColor(input.secondaryColor, '#0f172a')}, ${input.logoUrl || null},
        ${REQUIRED_ROUNDS}, ${Math.max(10, int(input.clockSeconds, 120))})
   `;
   await sql`
@@ -96,14 +104,12 @@ export async function setupLeague(input: {
       AS team(id text, name text, short_name text, primary_color text, secondary_color text,
               logo_url text, login_code_hash text, sort_order integer)
   `;
-  if (players.length) {
-    await sql`
-      INSERT INTO draft_players (id, name, position, pro_team, college, rank)
-      SELECT id, name, position, pro_team, college, rank
-      FROM jsonb_to_recordset(${JSON.stringify(players)}::jsonb)
-        AS player(id text, name text, position text, pro_team text, college text, rank integer)
-    `;
-  }
+  await sql`
+    INSERT INTO draft_players (id, name, position, pro_team, college, rank)
+    SELECT id, name, position, pro_team, college, rank
+    FROM jsonb_to_recordset(${JSON.stringify(players)}::jsonb)
+      AS player(id text, name text, position text, pro_team text, college text, rank integer)
+  `;
   return createDraft(`Draft ${new Date().getFullYear()}`);
 }
 
