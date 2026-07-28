@@ -8,6 +8,14 @@ import { DraftBoard } from '@/components/DraftBoard';
 import { TeamMark } from '@/components/TeamMark';
 import { useDraftState } from '@/components/useDraftState';
 import DraftOverlayLive from '@/components/draft-overlay/DraftOverlayLive';
+import { ClockDurationInput } from '@/components/setup/ClockDurationInput';
+import type { TradeAsset } from '@/lib/types';
+
+function assetLabel(asset: TradeAsset): string {
+  if (asset.assetType === 'player') return `${asset.playerName || asset.playerId || 'Player'} (${asset.fromTeam} → ${asset.toTeam})`;
+  if (asset.assetType === 'current_pick') return `Pick #${asset.pickOverall || '?'} (${asset.fromTeam} → ${asset.toTeam})`;
+  return `${asset.pickYear || '?'} Round ${asset.pickRound || '?'} (${asset.fromTeam} → ${asset.toTeam})`;
+}
 
 export default function CommissionerPage() {
   const { state, loading, error, refresh } = useDraftState(1200);
@@ -32,19 +40,23 @@ export default function CommissionerPage() {
   }, [state.draft?.clockSeconds]);
 
   const upcoming = useMemo(() => state.slots.filter((slot) => slot.overall >= (state.draft?.currentOverall || 1)).slice(0, 24), [state.draft?.currentOverall, state.slots]);
+  const moderationCount = (state.pendingPick ? 1 : 0) + (state.pendingTrades?.length || 0);
 
   async function action(actionName: string, extra: Record<string, unknown> = {}) {
     setWorking(true);
     setMessage(null);
-    const response = await fetch('/api/admin/action', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: actionName, ...extra }),
-    });
-    const data = await response.json();
-    setMessage(response.ok ? 'Saved.' : String(data.error || 'Action failed.').replaceAll('_', ' '));
-    await refresh();
-    setWorking(false);
+    try {
+      const response = await fetch('/api/admin/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: actionName, ...extra }),
+      });
+      const data = await response.json();
+      setMessage(response.ok ? 'Saved.' : String(data.error || 'Action failed.').replaceAll('_', ' '));
+      await refresh();
+    } finally {
+      setWorking(false);
+    }
   }
 
   if (loading || authorized === null) return <main className="center-screen"><div className="loader" />Loading commissioner controls…</main>;
@@ -56,16 +68,20 @@ export default function CommissionerPage() {
 
       <section className="commissioner-stage">
         <div className="commissioner-stage-heading">
-          <div>
-            <span className="eyebrow">Commissioner draft room</span>
-            <h1>{state.draft?.name || 'Draft'}</h1>
-            <p>The live broadcast board and animations remain the primary workspace.</p>
+          <div className="commissioner-brand-heading">
+            {state.branding?.logoUrl && <img className="commissioner-event-logo" src={state.branding.logoUrl} alt={`${state.leagueName || 'Draft'} logo`} />}
+            <div>
+              <span className="eyebrow">Commissioner draft room</span>
+              <h1>{state.draft?.name || 'Draft'}</h1>
+              <p>The live broadcast board and animations remain the primary workspace.</p>
+            </div>
           </div>
           <div className="commissioner-stage-actions">
             <span className={`status-pill status-${state.draft?.status.toLowerCase()}`}>{state.draft?.status.replace('_', ' ')}</span>
             <Clock deadline={state.draft?.deadlineTs || null} status={state.draft?.status} fallback={state.draft?.clockSeconds || 0} />
             <a className="button" href="/commissioner/settings">Edit full setup</a>
             <a className="button" href="/draft/overlay" target="_blank" rel="noreferrer">Open full-screen broadcast</a>
+            <a className="button" href="/draft/room/team?commissionerTest=1" target="_blank" rel="noreferrer">Open team-view tester</a>
           </div>
         </div>
         <div className="commissioner-overlay-frame">
@@ -76,14 +92,52 @@ export default function CommissionerPage() {
       {error && <div className="notice error">{error}</div>}
       {message && <div className="notice">{message}</div>}
 
+      <section className="panel moderation-panel">
+        <div className="section-title">
+          <div><span className="eyebrow">Commissioner review</span><h2>Pending approvals {moderationCount ? `(${moderationCount})` : ''}</h2></div>
+          <small>Nothing becomes final or triggers an animation until it is approved here.</small>
+        </div>
+        {!state.pendingPick && !(state.pendingTrades?.length) && <div className="empty moderation-empty">No picks or trades are waiting for review.</div>}
+        <div className="moderation-grid">
+          {state.pendingPick && (
+            <article className="moderation-card pending-pick-card">
+              <div className="moderation-card-heading"><span className="status-pill">PICK</span><strong>Pick #{state.pendingPick.overall}</strong></div>
+              <h3>{state.pendingPick.playerName}</h3>
+              <p>{state.pendingPick.playerPosition}{state.pendingPick.playerProTeam ? ` · ${state.pendingPick.playerProTeam}` : ''}</p>
+              <p className="muted">Submitted by {state.pendingPick.teamName}</p>
+              <div className="moderation-actions">
+                <button className="button success" disabled={working} onClick={() => action('approve_pick')}>Approve and play animation</button>
+                <button className="button danger" disabled={working} onClick={() => action('reject_pick')}>Reject pick</button>
+              </div>
+            </article>
+          )}
+          {(state.pendingTrades || []).map((trade) => {
+            const fullyAccepted = trade.status === 'accepted';
+            return (
+              <article className="moderation-card" key={trade.id}>
+                <div className="moderation-card-heading"><span className={`status-pill status-${trade.status}`}>TRADE</span><strong>{fullyAccepted ? 'Ready for commissioner' : 'Awaiting teams'}</strong></div>
+                <h3>{trade.teams.join(' ↔ ')}</h3>
+                <p className="muted">Accepted: {trade.acceptedBy.length}/{trade.teams.length}</p>
+                <ul className="moderation-assets">{trade.assets.map((asset) => <li key={asset.id}>{assetLabel(asset)}</li>)}</ul>
+                {trade.notes && <p className="muted">“{trade.notes}”</p>}
+                <div className="moderation-actions">
+                  <button className="button success" disabled={working || !fullyAccepted} onClick={() => action('approve_trade', { tradeId: trade.id })}>Approve, execute, and animate</button>
+                  <button className="button danger" disabled={working} onClick={() => action('reject_trade', { tradeId: trade.id })}>Reject trade</button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
       <section className="admin-grid">
         <div className="panel control-panel">
           <h2>Draft controls</h2>
           <div className="button-grid">
-            <button className="button success" disabled={working || state.draft?.status === 'LIVE'} onClick={() => action(state.draft?.status === 'PAUSED' ? 'resume' : 'start')}>{state.draft?.status === 'PAUSED' ? 'Resume draft' : 'Start draft'}</button>
+            <button className="button success" disabled={working || state.draft?.status === 'LIVE' || Boolean(state.pendingPick)} onClick={() => action(state.draft?.status === 'PAUSED' ? 'resume' : 'start')}>{state.draft?.status === 'PAUSED' ? 'Resume draft' : 'Start draft'}</button>
             <button className="button" disabled={working || state.draft?.status !== 'LIVE'} onClick={() => action('pause')}>Pause</button>
             <button className="button" disabled={working} onClick={() => action('undo')}>Undo last pick</button>
-            <button className="button" disabled={working} onClick={() => action('skip')}>Skip current slot</button>
+            <button className="button" disabled={working || Boolean(state.pendingPick)} onClick={() => action('skip')}>Skip current slot</button>
             <button className="button danger" disabled={working} onClick={() => { if (window.confirm('Reset all picks and queues for this draft?')) void action('reset'); }}>Reset draft</button>
           </div>
           <div className="on-clock-card">
@@ -93,9 +147,9 @@ export default function CommissionerPage() {
 
         <div className="panel control-panel">
           <h2>Clock and force pick</h2>
-          <label>Clock length in seconds<div className="input-row"><input type="number" min="10" value={clockSeconds} onChange={(event) => setClockSeconds(Number(event.target.value))} /><button className="button" disabled={working} onClick={() => action('set_clock', { clockSeconds })}>Save</button></div></label>
+          <div className="clock-control-row"><ClockDurationInput value={clockSeconds} onChange={setClockSeconds} disabled={working} /><button className="button" disabled={working} onClick={() => action('set_clock', { clockSeconds })}>Save clock</button></div>
           <label>Available player<select value={forcePlayer} onChange={(event) => setForcePlayer(event.target.value)}><option value="">Select player</option>{state.availablePlayers.map((player) => <option key={player.id} value={player.id}>{player.rank}. {player.name} · {player.position}</option>)}</select></label>
-          <button className="button warning" disabled={working || !forcePlayer} onClick={() => action('force_pick', { playerId: forcePlayer })}>Force pick for current team</button>
+          <button className="button warning" disabled={working || !forcePlayer || Boolean(state.pendingPick)} onClick={() => action('force_pick', { playerId: forcePlayer })}>Force pick for current team</button>
         </div>
 
         <div className="panel control-panel">
