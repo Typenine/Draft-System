@@ -1,0 +1,135 @@
+import { ensureSchema, getSql } from '../db';
+import type { ArchiveDraft, ArchiveFuturePick, ArchivePickReview, ArchiveRosterEntry, ModerationTrade, TradeAsset } from '../types';
+import { int, loadDraftPieces, mapDraft, mapTeam, rowsOf, type Row } from './shared';
+
+function jsonValue<T>(value: unknown, fallback: T): T {
+  if (value && typeof value === 'object') return value as T;
+  if (typeof value === 'string') {
+    try { return JSON.parse(value) as T; } catch { return fallback; }
+  }
+  return fallback;
+}
+
+function iso(value: unknown): string {
+  return new Date(String(value)).toISOString();
+}
+
+async function tradeHistory(draftId: string): Promise<ModerationTrade[]> {
+  const sql = getSql();
+  const trades = rowsOf<Row>(await sql`SELECT * FROM draft_trades WHERE draft_id = ${draftId} ORDER BY proposed_at, id`);
+  const assets = rowsOf<Row>(await sql`
+    SELECT asset.* FROM draft_trade_assets asset
+    JOIN draft_trades trade ON trade.id = asset.trade_id
+    WHERE trade.draft_id = ${draftId}
+    ORDER BY trade.proposed_at, asset.id
+  `);
+  return trades.map((trade) => ({
+    id: String(trade.id),
+    draftId: String(trade.draft_id),
+    status: String(trade.status),
+    proposedBy: String(trade.proposed_by),
+    teams: jsonValue<string[]>(trade.teams, []).map(String),
+    acceptedBy: jsonValue<string[]>(trade.accepted_by, []).map(String),
+    notes: trade.notes ? String(trade.notes) : null,
+    proposedAt: iso(trade.proposed_at),
+    updatedAt: iso(trade.updated_at),
+    assets: assets.filter((asset) => String(asset.trade_id) === String(trade.id)).map((asset): TradeAsset => ({
+      id: String(asset.id),
+      fromTeam: String(asset.from_team),
+      toTeam: String(asset.to_team),
+      assetType: String(asset.asset_type),
+      playerId: asset.player_id ? String(asset.player_id) : null,
+      playerName: asset.player_name ? String(asset.player_name) : null,
+      playerPosition: asset.player_pos ? String(asset.player_pos) : null,
+      pickOverall: asset.pick_overall == null ? null : int(asset.pick_overall),
+      pickYear: asset.pick_year == null ? null : int(asset.pick_year),
+      pickRound: asset.pick_round == null ? null : int(asset.pick_round),
+      pickOriginalTeam: asset.pick_original_team ? String(asset.pick_original_team) : null,
+    })),
+  }));
+}
+
+export async function archiveCompletedDraft(draftId: string): Promise<ArchiveDraft> {
+  await ensureSchema();
+  const sql = getSql();
+  const existing = rowsOf<Row>(await sql`SELECT snapshot FROM draft_archives WHERE draft_id = ${draftId} LIMIT 1`)[0];
+  if (existing) return jsonValue<ArchiveDraft>(existing.snapshot, {} as ArchiveDraft);
+
+  const draftRow = rowsOf<Row>(await sql`SELECT * FROM drafts WHERE id = ${draftId} AND status = 'COMPLETED' LIMIT 1`)[0];
+  if (!draftRow) throw new Error('completed_draft_required');
+  const settings = rowsOf<Row>(await sql`SELECT * FROM draft_settings WHERE id = 1 LIMIT 1`)[0];
+  if (!settings) throw new Error('league_not_configured');
+  const teams = rowsOf<Row>(await sql`SELECT * FROM draft_teams ORDER BY sort_order`).map(mapTeam);
+  const { slots, picks } = await loadDraftPieces(draftId);
+  const roster = rowsOf<Row>(await sql`SELECT * FROM draft_roster_ownership WHERE draft_id = ${draftId} ORDER BY owner_team_id, acquired_at`).map((row): ArchiveRosterEntry => ({
+    playerId: String(row.player_id), ownerTeamId: String(row.owner_team_id), playerName: String(row.player_name),
+    playerPosition: String(row.player_position), playerProTeam: row.player_pro_team ? String(row.player_pro_team) : null,
+    acquiredAt: iso(row.acquired_at),
+  }));
+  const futurePicks = rowsOf<Row>(await sql`SELECT * FROM draft_future_picks WHERE draft_id = ${draftId} ORDER BY pick_year, pick_round, original_team_id`).map((row): ArchiveFuturePick => ({
+    id: String(row.id), pickYear: int(row.pick_year), pickRound: int(row.pick_round),
+    originalTeamId: String(row.original_team_id), ownerTeamId: String(row.owner_team_id),
+  }));
+  const pickReviews = rowsOf<Row>(await sql`SELECT * FROM draft_pending_picks WHERE draft_id = ${draftId} ORDER BY submitted_at`).map((row): ArchivePickReview => ({
+    id: String(row.id), overall: int(row.overall), teamId: String(row.team_id), playerId: String(row.player_id),
+    playerName: String(row.player_name), status: String(row.status), submittedAt: iso(row.submitted_at),
+    reviewedAt: row.reviewed_at ? iso(row.reviewed_at) : null,
+  }));
+  const draft = mapDraft(draftRow);
+  const archivedAt = new Date().toISOString();
+  const snapshot: ArchiveDraft = {
+    ...draft,
+    archiveVersion: 1,
+    archivedAt,
+    leagueName: String(settings.league_name),
+    branding: {
+      primaryColor: String(settings.primary_color), secondaryColor: String(settings.secondary_color),
+      logoUrl: settings.logo_url ? String(settings.logo_url) : null,
+    },
+    settings: {
+      rounds: int(settings.rounds, draft.rounds), clockSeconds: int(settings.clock_seconds, draft.clockSeconds),
+      draftFormat: settings.draft_format === 'snake' ? 'snake' : 'linear',
+      baseOrder: jsonValue<string[]>(settings.base_order, []).map(String),
+    },
+    teams, slots, picks,
+    trades: await tradeHistory(draftId),
+    roster, futurePicks, pickReviews,
+  };
+  await sql`
+    INSERT INTO draft_archives (draft_id, draft_name, snapshot, created_at, completed_at, archived_at)
+    VALUES (${draftId}, ${draft.name}, ${JSON.stringify(snapshot)}::jsonb, ${draft.createdAt}, ${draft.completedAt}, now())
+    ON CONFLICT (draft_id) DO NOTHING
+  `;
+  return snapshot;
+}
+
+export async function removeArchiveSnapshot(draftId: string): Promise<void> {
+  await ensureSchema();
+  await getSql()`DELETE FROM draft_archives WHERE draft_id = ${draftId}`;
+}
+
+export async function listArchiveSnapshots(): Promise<ArchiveDraft[]> {
+  await ensureSchema();
+  const sql = getSql();
+  const missing = rowsOf<Row>(await sql`
+    SELECT draft.id FROM drafts draft
+    LEFT JOIN draft_archives archive ON archive.draft_id = draft.id::text
+    WHERE draft.status = 'COMPLETED' AND archive.draft_id IS NULL
+    ORDER BY draft.completed_at
+  `);
+  for (const row of missing) await archiveCompletedDraft(String(row.id));
+  return rowsOf<Row>(await sql`SELECT snapshot FROM draft_archives ORDER BY completed_at DESC NULLS LAST, archived_at DESC`)
+    .map((row) => jsonValue<ArchiveDraft>(row.snapshot, {} as ArchiveDraft));
+}
+
+export async function getArchiveSnapshot(draftId: string): Promise<ArchiveDraft | null> {
+  await ensureSchema();
+  const sql = getSql();
+  let row = rowsOf<Row>(await sql`SELECT snapshot FROM draft_archives WHERE draft_id = ${draftId} LIMIT 1`)[0];
+  if (!row) {
+    const completed = rowsOf<Row>(await sql`SELECT id FROM drafts WHERE id = ${draftId} AND status = 'COMPLETED' LIMIT 1`)[0];
+    if (completed) return archiveCompletedDraft(draftId);
+    return null;
+  }
+  return jsonValue<ArchiveDraft>(row.snapshot, {} as ArchiveDraft);
+}
