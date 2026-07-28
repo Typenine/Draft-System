@@ -1,56 +1,35 @@
 'use client';
 
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useMemo, useState, type CSSProperties } from 'react';
 import { useDraftState } from '@/components/useDraftState';
+import { PlayerImport } from '@/components/setup/PlayerImport';
+import { createDefaultTeams, TeamSetupEditor, type EditableTeam } from '@/components/setup/TeamSetupEditor';
 import type { SetupPlayerInput, SetupTeamInput } from '@/lib/types';
 
-const sampleTeams = Array.from({ length: 12 }, (_, index) => {
-  const number = index + 1;
-  const palette = [
-    ['#be161e', '#bf9944'], ['#1d4ed8', '#0f172a'], ['#15803d', '#052e16'], ['#c2410c', '#1c1917'],
-    ['#7e22ce', '#2e1065'], ['#0f766e', '#042f2e'], ['#b91c1c', '#111827'], ['#0369a1', '#082f49'],
-    ['#4d7c0f', '#1a2e05'], ['#a21caf', '#4a044e'], ['#b45309', '#451a03'], ['#4338ca', '#1e1b4b'],
-  ][index];
-  return `Team ${number},T${String(number).padStart(2, '0')},${palette[0]},${palette[1]},team${String(number).padStart(2, '0')},`;
-}).join('\n');
-
-const samplePlayers = '';
 const placeholderNames = ['Alpha Wolves', 'Bay City', 'Capital Club', 'Desert Storm'];
-
-function csvLines(value: string): string[][] {
-  return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => line.split(',').map((part) => part.trim()));
-}
-
-function parseTeams(value: string): SetupTeamInput[] {
-  return csvLines(value).map(([name, shortName, primaryColor, secondaryColor, loginCode, logoUrl]) => ({
-    name,
-    shortName,
-    primaryColor,
-    secondaryColor,
-    loginCode,
-    logoUrl: logoUrl || null,
-  }));
-}
-
-function parsePlayers(value: string): SetupPlayerInput[] {
-  return csvLines(value).map(([rank, name, position, proTeam, college, id]) => ({
-    id: id || undefined,
-    rank: Number(rank),
-    name,
-    position,
-    proTeam: proTeam || null,
-    college: college || null,
-  }));
-}
+const REQUIRED_PLAYER_COUNT = 12 * 28;
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 function friendlySetupError(value: unknown): string {
   const message = String(value || 'Setup failed.');
-  if (message === 'exactly_12_teams_required') return 'Enter exactly 12 teams—one team per line.';
+  if (message === 'exactly_12_teams_required') return 'Set up exactly 12 teams.';
+  if (message === 'minimum_336_players_required') return 'Import at least 336 valid players before creating the draft.';
   if (message.includes('_login_code_duplicate')) return 'Every team needs a unique access code.';
-  if (message.includes('_incomplete')) return 'Each team row needs a name and access code.';
+  if (message.includes('_incomplete')) return 'Each team needs a name and access code.';
   if (message === 'admin_code_required') return 'Create a commissioner access code.';
   if (message === 'sample_replacement_not_available') return 'The sample league can no longer be replaced because real draft activity already exists.';
   return message.replaceAll('_', ' ');
+}
+
+function setupTeams(teams: EditableTeam[]): SetupTeamInput[] {
+  return teams.map((team) => ({
+    name: team.name.trim(),
+    shortName: team.shortName.trim().toUpperCase(),
+    primaryColor: team.primaryColor.trim(),
+    secondaryColor: team.secondaryColor.trim(),
+    loginCode: team.loginCode.trim(),
+    logoUrl: team.logoUrl.trim() || null,
+  }));
 }
 
 export default function HomePage() {
@@ -60,6 +39,8 @@ export default function HomePage() {
   const [selectedTeamId, setSelectedTeamId] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  const [teams, setTeams] = useState<EditableTeam[]>(() => createDefaultTeams());
+  const [players, setPlayers] = useState<SetupPlayerInput[]>([]);
   const [setup, setSetup] = useState({
     leagueName: 'Panther Nation',
     adminCode: '',
@@ -68,8 +49,6 @@ export default function HomePage() {
     logoUrl: '',
     rounds: 28,
     clockSeconds: 120,
-    teamsCsv: sampleTeams,
-    playersCsv: samplePlayers,
   });
 
   const placeholderLeague = Boolean(
@@ -81,10 +60,19 @@ export default function HomePage() {
   );
   const showSetup = !state.configured || placeholderLeague;
 
+  const teamStatus = useMemo(() => {
+    const incomplete = teams.filter((team) => !team.name.trim() || !team.shortName.trim() || !team.loginCode.trim()).length;
+    const normalizedCodes = teams.map((team) => team.loginCode.trim().toLowerCase()).filter(Boolean);
+    const uniqueCodes = new Set(normalizedCodes).size === normalizedCodes.length;
+    const validColors = teams.every((team) => HEX_COLOR.test(team.primaryColor.trim()) && HEX_COLOR.test(team.secondaryColor.trim()));
+    return { incomplete, uniqueCodes, validColors, ready: teams.length === 12 && incomplete === 0 && uniqueCodes && validColors };
+  }, [teams]);
+  const setupReady = Boolean(setup.leagueName.trim() && setup.adminCode.trim() && teamStatus.ready && players.length >= REQUIRED_PLAYER_COUNT);
+
   const theme = useMemo(() => ({
     '--league-primary': state.branding?.primaryColor || setup.primaryColor,
     '--league-secondary': state.branding?.secondaryColor || setup.secondaryColor,
-  }) as React.CSSProperties, [setup.primaryColor, setup.secondaryColor, state.branding]);
+  }) as CSSProperties, [setup.primaryColor, setup.secondaryColor, state.branding]);
 
   async function login(event: FormEvent) {
     event.preventDefault();
@@ -103,20 +91,30 @@ export default function HomePage() {
 
   async function configure(event: FormEvent) {
     event.preventDefault();
-    setWorking(true);
     setMessage(null);
-    const teams = parseTeams(setup.teamsCsv);
-    const players = parsePlayers(setup.playersCsv);
-    if (teams.length !== 12) {
-      setMessage('Enter exactly 12 teams—one team per line.');
-      setWorking(false);
+
+    if (!teamStatus.ready) {
+      if (teamStatus.incomplete) setMessage(`${teamStatus.incomplete} team${teamStatus.incomplete === 1 ? '' : 's'} still need a name, abbreviation, or access code.`);
+      else if (!teamStatus.uniqueCodes) setMessage('Every team must have a unique access code.');
+      else setMessage('Every team color must be a six-digit hex value such as #be161e.');
+      return;
+    }
+    if (players.length < REQUIRED_PLAYER_COUNT) {
+      setMessage(`Import at least ${REQUIRED_PLAYER_COUNT} valid players. The current pool has ${players.length}.`);
       return;
     }
 
+    setWorking(true);
     const response = await fetch('/api/setup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...setup, rounds: 28, teams, players, replacePlaceholder: placeholderLeague }),
+      body: JSON.stringify({
+        ...setup,
+        rounds: 28,
+        teams: setupTeams(teams),
+        players,
+        replacePlaceholder: placeholderLeague,
+      }),
     });
     const data = await response.json();
     if (!response.ok) {
@@ -157,33 +155,54 @@ export default function HomePage() {
 
   if (showSetup) {
     return (
-      <main className="setup-page" style={theme}>
+      <main className="setup-page setup-page-wide" style={theme}>
         <section className="setup-intro">
           <span className="eyebrow">League setup</span>
           <h1>{placeholderLeague ? 'Replace the temporary sample league.' : 'Configure your draft room.'}</h1>
-          <p>This draft system is fixed for 12 teams and 28 rounds. After setup, you will be signed directly into commissioner control.</p>
+          <p>Set up the league, visually configure all 12 teams, and verify the full IDP player pool before anything is saved.</p>
           {placeholderLeague && <div className="notice">The four-team sample data is untouched and has no picks, so it can be safely replaced here without the unknown sample commissioner code.</div>}
         </section>
-        <form className="setup-form panel" onSubmit={configure}>
+
+        <form className="setup-form setup-wizard panel" onSubmit={configure}>
           <div className="setup-summary">
             <div><small>League size</small><strong>12 teams</strong></div>
             <div><small>Draft length</small><strong>28 rounds</strong></div>
             <div><small>Total selections</small><strong>336 picks</strong></div>
           </div>
-          <div className="form-grid three">
-            <label>League name<input value={setup.leagueName} onChange={(e) => setSetup({ ...setup, leagueName: e.target.value })} required /></label>
-            <label>Commissioner access code<input type="password" value={setup.adminCode} onChange={(e) => setSetup({ ...setup, adminCode: e.target.value })} autoComplete="new-password" required /></label>
-            <label>League or draft logo URL<input value={setup.logoUrl} onChange={(e) => setSetup({ ...setup, logoUrl: e.target.value })} placeholder="Optional" /></label>
-            <label>Primary color<input type="color" value={setup.primaryColor} onChange={(e) => setSetup({ ...setup, primaryColor: e.target.value })} /></label>
-            <label>Secondary color<input type="color" value={setup.secondaryColor} onChange={(e) => setSetup({ ...setup, secondaryColor: e.target.value })} /></label>
-            <label>Pick clock in seconds<input type="number" min="10" value={setup.clockSeconds} onChange={(e) => setSetup({ ...setup, clockSeconds: Number(e.target.value) })} /></label>
-          </div>
-          <label>12 teams<textarea rows={14} value={setup.teamsCsv} onChange={(e) => setSetup({ ...setup, teamsCsv: e.target.value })} spellCheck={false} /></label>
-          <p className="field-help">Exactly 12 lines: team name, abbreviation, primary color, secondary color, team access code, optional logo URL. Replace the Team 1–12 labels and codes with the real league information.</p>
-          <label>Draftable players<textarea rows={11} value={setup.playersCsv} onChange={(e) => setSetup({ ...setup, playersCsv: e.target.value })} placeholder="1,Patrick Mahomes,QB,KC,Texas Tech\n2,Micah Parsons,EDGE,DAL,Penn State" spellCheck={false} /></label>
-          <p className="field-help">One player per line: rank, name, position, NFL team, college, optional unique ID. IDP positions such as EDGE, DL, LB, CB, and S are supported.</p>
-          {message && <p className="form-message error">{message}</p>}
-          <button className="button primary setup-submit" disabled={working}>{working ? 'Creating 12-team draft room…' : 'Create league and enter commissioner control'}</button>
+
+          <section className="setup-section">
+            <div className="setup-section-heading">
+              <div><span className="eyebrow">Step 1</span><h2>League and event details</h2><p>These colors and the logo provide the default event branding. Each team gets its own colors in the next step.</p></div>
+            </div>
+            <div className="form-grid three">
+              <label>League name<input value={setup.leagueName} onChange={(event) => setSetup({ ...setup, leagueName: event.target.value })} required /></label>
+              <label>Commissioner access code<input type="password" value={setup.adminCode} onChange={(event) => setSetup({ ...setup, adminCode: event.target.value })} autoComplete="new-password" required /></label>
+              <label>League or draft logo URL<input value={setup.logoUrl} onChange={(event) => setSetup({ ...setup, logoUrl: event.target.value })} placeholder="Optional" /></label>
+              <label>Primary event color
+                <div className="color-control"><input type="color" value={setup.primaryColor} onChange={(event) => setSetup({ ...setup, primaryColor: event.target.value })} /><input value={setup.primaryColor} maxLength={7} onChange={(event) => setSetup({ ...setup, primaryColor: event.target.value })} /></div>
+              </label>
+              <label>Secondary event color
+                <div className="color-control"><input type="color" value={setup.secondaryColor} onChange={(event) => setSetup({ ...setup, secondaryColor: event.target.value })} /><input value={setup.secondaryColor} maxLength={7} onChange={(event) => setSetup({ ...setup, secondaryColor: event.target.value })} /></div>
+              </label>
+              <label>Pick clock in seconds<input type="number" min="10" value={setup.clockSeconds} onChange={(event) => setSetup({ ...setup, clockSeconds: Number(event.target.value) })} /></label>
+            </div>
+          </section>
+
+          <TeamSetupEditor teams={teams} leaguePrimary={setup.primaryColor} leagueSecondary={setup.secondaryColor} onChange={setTeams} />
+          <PlayerImport selectedCount={players.length} requiredCount={REQUIRED_PLAYER_COUNT} onPlayersChange={setPlayers} />
+
+          <section className="setup-section setup-final-review">
+            <div className="setup-section-heading">
+              <div><span className="eyebrow">Step 4</span><h2>Review and create the league</h2><p>The sample league will only be deleted after this complete setup passes validation.</p></div>
+            </div>
+            <div className="readiness-grid">
+              <div className={setup.leagueName.trim() && setup.adminCode.trim() ? 'ready' : ''}><span>League access</span><strong>{setup.leagueName.trim() && setup.adminCode.trim() ? 'Ready' : 'Needs details'}</strong></div>
+              <div className={teamStatus.ready ? 'ready' : ''}><span>Team setup</span><strong>{teamStatus.ready ? '12 teams ready' : `${teamStatus.incomplete || 12} need attention`}</strong></div>
+              <div className={players.length >= REQUIRED_PLAYER_COUNT ? 'ready' : ''}><span>Player pool</span><strong>{players.length >= REQUIRED_PLAYER_COUNT ? `${players.length} players ready` : `${REQUIRED_PLAYER_COUNT - players.length} more needed`}</strong></div>
+            </div>
+            {message && <p className="form-message error">{message}</p>}
+            <button className="button primary setup-submit" disabled={working || !setupReady}>{working ? 'Creating 12-team draft room…' : setupReady ? 'Create league and enter commissioner control' : 'Complete team setup and player import'}</button>
+          </section>
         </form>
       </main>
     );
@@ -215,14 +234,14 @@ export default function HomePage() {
         </div>
         {role === 'team' && (
           <label>Choose your team
-            <select value={selectedTeamId} onChange={(e) => setSelectedTeamId(e.target.value)} required>
+            <select value={selectedTeamId} onChange={(event) => setSelectedTeamId(event.target.value)} required>
               <option value="">Select team</option>
               {state.teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
             </select>
           </label>
         )}
         <label>{role === 'team' ? 'Team access code' : 'Commissioner access code'}
-          <input type="password" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="current-password" required />
+          <input type="password" value={code} onChange={(event) => setCode(event.target.value)} autoComplete="current-password" required />
         </label>
         {message && <p className="form-message error">{message}</p>}
         {error && <p className="form-message error">{error}</p>}
