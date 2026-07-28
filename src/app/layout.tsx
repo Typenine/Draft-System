@@ -3,6 +3,7 @@ import './globals.css';
 import './entry-flow.css';
 import './admin-enhancements.css';
 import './setup-access-fix.css';
+import './commissioner/moderation.css';
 
 export const metadata: Metadata = {
   title: 'Draft System',
