@@ -1,7 +1,17 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
+
+const DEFAULT_EVENT_LOGO = "/panther-nation-draft-2026.webp";
+const DEFAULT_EVENT_LOGO_SHA256 = "e02cc68a5e66e7c3c38b56c68833632fcfa8441fa3cc62c8501aefc093973444";
+const logoPayloadPaths = [
+  "scripts/panther-logo-part-1.txt",
+  "scripts/panther-logo-part-2.txt",
+  "scripts/panther-logo-part-3.txt",
+  "scripts/panther-logo-part-4.txt",
+];
 
 const playerPayloadPaths = [
   "src/data/draftable-players-payload-1.ts",
@@ -60,8 +70,40 @@ for (const [relativePath, content] of protectedFiles) {
   await writeFile(absolutePath, content, "utf8");
 }
 
+// Materialize the user-provided Panther Nation logo as a first-party public asset.
+const logoPayload = (await Promise.all(
+  logoPayloadPaths.map((relativePath) => readFile(resolve(process.cwd(), relativePath), "utf8")),
+)).join("");
+const logoBytes = Buffer.from(logoPayload, "base64");
+const logoHash = createHash("sha256").update(logoBytes).digest("hex");
+if (logoHash !== DEFAULT_EVENT_LOGO_SHA256) {
+  throw new Error("[standalone-adapter] Default Panther Nation logo payload is incomplete or corrupt.");
+}
+const publicLogoPath = resolve(process.cwd(), `public${DEFAULT_EVENT_LOGO}`);
+await mkdir(dirname(publicLogoPath), { recursive: true });
+await writeFile(publicLogoPath, logoBytes);
+
+// Keep the built-in logo selected when a new league is configured.
+const homepagePath = resolve(process.cwd(), "src/app/page.tsx");
+let homepage = await readFile(homepagePath, "utf8");
+homepage = homepage.replace("logoUrl: '',", `logoUrl: '${DEFAULT_EVENT_LOGO}',`);
+if (!homepage.includes("setup-event-logo-preview")) {
+  homepage = homepage.replace(
+    '<section className="setup-intro">',
+    `<section className="setup-intro"><img className="setup-event-logo-preview" src={setup.logoUrl || '${DEFAULT_EVENT_LOGO}'} alt="Panther Nation Draft 2026" />`,
+  );
+}
+await writeFile(homepagePath, homepage, "utf8");
+
+const enhancementsPath = resolve(process.cwd(), "src/app/admin-enhancements.css");
+let enhancements = await readFile(enhancementsPath, "utf8");
+if (!enhancements.includes(".setup-event-logo-preview")) {
+  enhancements += `\n.setup-event-logo-preview {\n  width: clamp(110px, 13vw, 190px);\n  height: clamp(110px, 13vw, 190px);\n  object-fit: contain;\n  justify-self: start;\n  filter: drop-shadow(0 18px 34px rgba(0, 0, 0, .38));\n}\n@media (max-width: 700px) {\n  .setup-event-logo-preview { width: 118px; height: 118px; }\n}\n`;
+}
+await writeFile(enhancementsPath, enhancements, "utf8");
+
 // Fail the build instead of silently shipping an obsolete or incomplete setup flow.
-const homepage = await readFile(resolve(process.cwd(), "src/app/page.tsx"), "utf8");
+homepage = await readFile(homepagePath, "utf8");
 const setupApi = await readFile(resolve(process.cwd(), "src/app/api/setup/route.ts"), "utf8");
 const setupStore = await readFile(resolve(process.cwd(), "src/lib/store/setup.ts"), "utf8");
 const adminStore = await readFile(resolve(process.cwd(), "src/lib/store/admin.ts"), "utf8");
@@ -77,6 +119,9 @@ const playerLoader = await readFile(resolve(process.cwd(), "src/lib/draftable-pl
 
 if (!homepage.includes("Replace the temporary sample league") || !homepage.includes("DraftOrderEditor") || !homepage.includes("Commissioner sign in") || homepage.includes("PlayerImport")) {
   throw new Error("[standalone-adapter] Ordered Google Sheet-backed setup page was not preserved.");
+}
+if (!homepage.includes(DEFAULT_EVENT_LOGO) || !homepage.includes("setup-event-logo-preview")) {
+  throw new Error("[standalone-adapter] Default Panther Nation event logo was not preserved.");
 }
 if (!setupStore.includes("REQUIRED_TEAM_COUNT = 12") || !setupStore.includes("REQUIRED_ROUNDS = 28") || !setupStore.includes("draftOrder")) {
   throw new Error("[standalone-adapter] Required 12-team, 28-round, complete order setup rules were not preserved.");
