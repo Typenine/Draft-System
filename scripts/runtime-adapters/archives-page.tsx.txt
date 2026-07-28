@@ -1,0 +1,80 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { AppHeader } from '@/components/AppHeader';
+import { DraftBoard } from '@/components/DraftBoard';
+import { useDraftState } from '@/components/useDraftState';
+import type { ArchiveDraft, DraftState } from '@/lib/types';
+
+export default function ArchivesPage() {
+  const { state } = useDraftState(0);
+  const [drafts, setDrafts] = useState<ArchiveDraft[]>([]);
+  const [selected, setSelected] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetch('/api/archives', { cache: 'no-store' }).then(async (response) => {
+      const data = await response.json();
+      if (!response.ok) setError(String(data.error || 'Unable to load archives.'));
+      else {
+        const loaded = data.drafts as ArchiveDraft[];
+        setDrafts(loaded);
+        setSelected(loaded[0]?.id || '');
+      }
+    });
+  }, []);
+
+  const draft = drafts.find((item) => item.id === selected) || null;
+  const archiveState: DraftState = draft ? {
+    ...state,
+    configured: true,
+    leagueName: draft.leagueName,
+    branding: draft.branding,
+    settings: draft.settings,
+    draft,
+    teams: draft.teams,
+    slots: draft.slots,
+    picks: draft.picks,
+    pendingPick: null,
+    pendingTrades: [],
+    currentTeam: null,
+    availablePlayers: [],
+  } : state;
+
+  return (
+    <main className="app-page">
+      <AppHeader state={archiveState} />
+      <section className="page-heading"><div><span className="eyebrow">Immutable draft history</span><h1>Archives</h1><p>Completed drafts retain their original teams, colors, pick order, results, trade history, and roster ownership even after future league settings change.</p></div></section>
+      {error && <div className="notice error">{error}</div>}
+      <section className="archive-layout">
+        <aside className="panel archive-list">
+          <h2>Completed drafts</h2>
+          {drafts.map((item) => <button key={item.id} className={selected === item.id ? 'active' : ''} onClick={() => setSelected(item.id)}><strong>{item.name}</strong><span>{item.status.replace('_', ' ')}</span><small>{item.picks.length} picks · {item.completedAt ? new Date(item.completedAt).toLocaleDateString() : new Date(item.createdAt).toLocaleDateString()}</small></button>)}
+          {!drafts.length && <div className="empty">No completed drafts have been archived.</div>}
+        </aside>
+        <section className="panel section-panel board-section">
+          <div className="section-title">
+            <div><span className="eyebrow">Saved board</span><h2>{draft?.name || 'Select a draft'}</h2></div>
+            {draft && <small>{draft.picks.length} selections · {draft.trades.length} recorded trades</small>}
+          </div>
+          {draft && (
+            <>
+              <div className="button-row archive-export-actions">
+                <a className="button primary" href={`/api/archives/${draft.id}/export?format=csv&dataset=picks`}>Export results CSV</a>
+                <a className="button" href={`/api/archives/${draft.id}/export?format=csv&dataset=trades`}>Export trades CSV</a>
+                <a className="button" href={`/api/archives/${draft.id}/export?format=json`}>Export full JSON archive</a>
+              </div>
+              <div className="archive-summary-grid">
+                <div><small>Completed</small><strong>{draft.completedAt ? new Date(draft.completedAt).toLocaleString() : '—'}</strong></div>
+                <div><small>Format</small><strong>{draft.settings.draftFormat === 'snake' ? 'Snake' : 'Linear / custom'}</strong></div>
+                <div><small>Rounds</small><strong>{draft.rounds}</strong></div>
+                <div><small>Current roster records</small><strong>{draft.roster.length}</strong></div>
+              </div>
+              <DraftBoard state={archiveState} />
+            </>
+          )}
+        </section>
+      </section>
+    </main>
+  );
+}
