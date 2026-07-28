@@ -25,7 +25,7 @@ export default function EndOfDraftAnimation({
   const rootRef = useRef<HTMLDivElement>(null);
   const logoRef = useRef<HTMLImageElement>(null);
   const eyebrowRef = useRef<HTMLDivElement>(null);
-  const titleRef = useRef<HTMLHeading2Element>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const detailRef = useRef<HTMLDivElement>(null);
   const completeRef = useRef(onComplete);
   completeRef.current = onComplete;
@@ -44,7 +44,7 @@ export default function EndOfDraftAnimation({
       .to({}, { duration: 5.4 })
       .to([detailRef.current, titleRef.current, eyebrowRef.current, logoRef.current], { opacity: 0, y: -18, duration: 0.55, stagger: 0.05, ease: 'power2.in' })
       .to(root, { opacity: 0, duration: 0.45 });
-    return () => timeline.kill();
+    return () => { timeline.kill(); };
   }, []);
 
   return (
