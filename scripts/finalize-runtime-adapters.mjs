@@ -15,6 +15,17 @@ for (const [templatePath, outputPath] of runtimeTemplates) {
   await writeFile(resolve(process.cwd(), outputPath), template, 'utf8');
 }
 
+const adminStorePath = resolve(process.cwd(), 'src/lib/store/admin.ts');
+let adminStore = await readFile(adminStorePath, 'utf8');
+adminStore = adminStore.replace(
+  "    await sql`UPDATE draft_trades SET animation_pending = false, resume_after_animation = false WHERE draft_id = ${draftId}`;",
+  '    await resetTrades(draftId);',
+);
+if (!adminStore.includes('await resetTrades(draftId);')) {
+  throw new Error('[standalone-adapter] Full draft reset does not clear trade state.');
+}
+await writeFile(adminStorePath, adminStore, 'utf8');
+
 const commissionerPath = resolve(process.cwd(), 'src/app/commissioner/page.tsx');
 let commissioner = await readFile(commissionerPath, 'utf8');
 if (!commissioner.includes('href="/commissioner/media"')) {
