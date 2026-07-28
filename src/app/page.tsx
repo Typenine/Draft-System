@@ -2,6 +2,7 @@
 
 import { FormEvent, useMemo, useState, type CSSProperties } from 'react';
 import { DraftablePlayerSource } from '@/components/setup/DraftablePlayerSource';
+import { DraftOrderEditor, generateDraftOrder, type DraftFormat } from '@/components/setup/DraftOrderEditor';
 import { createDefaultTeams, TeamSetupEditor, type EditableTeam } from '@/components/setup/TeamSetupEditor';
 import { useDraftState } from '@/components/useDraftState';
 import { DRAFTABLE_PLAYER_SOURCE } from '@/data/draftable-player-source';
@@ -10,11 +11,13 @@ import type { SetupTeamInput } from '@/lib/types';
 const placeholderNames = ['Alpha Wolves', 'Bay City', 'Capital Club', 'Desert Storm'];
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 const playerCount = new Intl.NumberFormat('en-US').format(DRAFTABLE_PLAYER_SOURCE.playerCount);
+const setupTeamIds = Array.from({ length: 12 }, (_, index) => `setup-team-${index + 1}`);
 
 function friendlySetupError(value: unknown): string {
   const message = String(value || 'Setup failed.');
   if (message === 'exactly_12_teams_required') return 'Set up exactly 12 teams.';
   if (message === 'minimum_336_players_required' || message === 'draftable_player_source_invalid') return 'The Draftable Players sheet source could not be loaded.';
+  if (message === 'invalid_base_order' || message === 'invalid_draft_order' || message === 'invalid_draft_format') return 'Review the draft format and complete pick order.';
   if (message.includes('_login_code_duplicate')) return 'Every team needs a unique access code.';
   if (message.includes('_incomplete')) return 'Each team needs a name and access code.';
   if (message === 'admin_code_required') return 'Create a commissioner access code.';
@@ -41,6 +44,9 @@ export default function HomePage() {
   const [message, setMessage] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const [teams, setTeams] = useState<EditableTeam[]>(() => createDefaultTeams());
+  const [draftFormat, setDraftFormat] = useState<DraftFormat>('linear');
+  const [baseOrder, setBaseOrder] = useState<string[]>(setupTeamIds);
+  const [slotOrder, setSlotOrder] = useState<string[]>(() => generateDraftOrder(setupTeamIds, 28, 'linear'));
   const [setup, setSetup] = useState({
     leagueName: 'Panther Nation',
     adminCode: '',
@@ -67,12 +73,21 @@ export default function HomePage() {
     const validColors = teams.every((team) => HEX_COLOR.test(team.primaryColor.trim()) && HEX_COLOR.test(team.secondaryColor.trim()));
     return { incomplete, uniqueCodes, validColors, ready: teams.length === 12 && incomplete === 0 && uniqueCodes && validColors };
   }, [teams]);
-  const setupReady = Boolean(setup.leagueName.trim() && setup.adminCode.trim() && teamStatus.ready);
+  const orderReady = baseOrder.length === 12 && new Set(baseOrder).size === 12 && slotOrder.length === 336 && slotOrder.every((teamId) => setupTeamIds.includes(teamId));
+  const setupReady = Boolean(setup.leagueName.trim() && setup.adminCode.trim() && teamStatus.ready && orderReady);
 
   const theme = useMemo(() => ({
     '--league-primary': state.branding?.primaryColor || setup.primaryColor,
     '--league-secondary': state.branding?.secondaryColor || setup.secondaryColor,
   }) as CSSProperties, [setup.primaryColor, setup.secondaryColor, state.branding]);
+
+  function updateOrderTemplate(nextBase: string[], nextFormat: DraftFormat) {
+    const previousGenerated = generateDraftOrder(baseOrder, 28, draftFormat);
+    const nextGenerated = generateDraftOrder(nextBase, 28, nextFormat);
+    setSlotOrder((current) => current.map((teamId, index) => teamId === previousGenerated[index] ? nextGenerated[index] : teamId));
+    setBaseOrder(nextBase);
+    setDraftFormat(nextFormat);
+  }
 
   async function login(event: FormEvent) {
     event.preventDefault();
@@ -99,6 +114,18 @@ export default function HomePage() {
       else setMessage('Every team color must be a six-digit hex value such as #be161e.');
       return;
     }
+    if (!orderReady) {
+      setMessage('Review the complete 336-pick draft order.');
+      return;
+    }
+
+    const teamIndex = new Map(teams.map((team, index) => [team.id || setupTeamIds[index], index]));
+    const baseIndexes = baseOrder.map((teamId) => teamIndex.get(teamId) ?? -1);
+    const slotIndexes = slotOrder.map((teamId) => teamIndex.get(teamId) ?? -1);
+    if (baseIndexes.includes(-1) || slotIndexes.includes(-1)) {
+      setMessage('The draft order contains a team that is no longer available.');
+      return;
+    }
 
     setWorking(true);
     const response = await fetch('/api/setup', {
@@ -108,6 +135,9 @@ export default function HomePage() {
         ...setup,
         rounds: 28,
         teams: setupTeams(teams),
+        draftFormat,
+        baseOrder: baseIndexes,
+        draftOrder: slotIndexes,
         replacePlaceholder: placeholderLeague,
       }),
     });
@@ -152,16 +182,22 @@ export default function HomePage() {
     return (
       <main className="setup-page setup-page-wide" style={theme}>
         <section className="setup-intro">
-          <span className="eyebrow">League setup</span>
-          <h1>{placeholderLeague ? 'Replace the temporary sample league.' : 'Configure your draft room.'}</h1>
-          <p>Set up the league and visually configure all 12 teams. The draftable player pool is already loaded from the linked Google Sheet.</p>
-          {placeholderLeague && <div className="notice">The four-team sample data is untouched and has no picks, so it can be safely replaced here without the unknown sample commissioner code.</div>}
+          <div className="setup-intro-head">
+            <div>
+              <span className="eyebrow">League setup</span>
+              <h1>{placeholderLeague ? 'Replace the temporary sample league.' : 'Configure your draft room.'}</h1>
+            </div>
+            <a className="button setup-admin-link" href="/admin">Commissioner sign in</a>
+          </div>
+          <p>Set up the league, all 12 teams, and the complete draft order. The draftable player pool is already loaded from the linked Google Sheet.</p>
+          {placeholderLeague && <div className="notice">The untouched four-team sample can be safely replaced here without its unknown commissioner code.</div>}
         </section>
 
         <form className="setup-form setup-wizard panel" onSubmit={configure}>
-          <div className="setup-summary">
+          <div className="setup-summary four">
             <div><small>League size</small><strong>12 teams</strong></div>
             <div><small>Draft length</small><strong>28 rounds</strong></div>
+            <div><small>Draft format</small><strong>{draftFormat === 'snake' ? 'Snake' : 'Linear'}</strong></div>
             <div><small>Player pool</small><strong>{playerCount}</strong></div>
           </div>
 
@@ -184,19 +220,31 @@ export default function HomePage() {
           </section>
 
           <TeamSetupEditor teams={teams} leaguePrimary={setup.primaryColor} leagueSecondary={setup.secondaryColor} onChange={setTeams} />
-          <DraftablePlayerSource />
+          <DraftOrderEditor
+            teams={teams.map((team, index) => ({ id: team.id || setupTeamIds[index], name: team.name, shortName: team.shortName, primaryColor: team.primaryColor }))}
+            rounds={28}
+            format={draftFormat}
+            baseOrder={baseOrder}
+            slotOrder={slotOrder}
+            stepLabel="Step 3"
+            onFormatChange={(nextFormat) => updateOrderTemplate(baseOrder, nextFormat)}
+            onBaseOrderChange={(nextBase) => updateOrderTemplate(nextBase, draftFormat)}
+            onSlotOrderChange={setSlotOrder}
+          />
+          <DraftablePlayerSource stepLabel="Step 4" />
 
           <section className="setup-section setup-final-review">
             <div className="setup-section-heading">
-              <div><span className="eyebrow">Step 4</span><h2>Review and create the league</h2><p>The sample league will only be deleted after this complete setup passes validation.</p></div>
+              <div><span className="eyebrow">Step 5</span><h2>Review and create the league</h2><p>The sample league will only be deleted after this complete setup passes validation.</p></div>
             </div>
             <div className="readiness-grid">
               <div className={setup.leagueName.trim() && setup.adminCode.trim() ? 'ready' : ''}><span>League access</span><strong>{setup.leagueName.trim() && setup.adminCode.trim() ? 'Ready' : 'Needs details'}</strong></div>
               <div className={teamStatus.ready ? 'ready' : ''}><span>Team setup</span><strong>{teamStatus.ready ? '12 teams ready' : `${teamStatus.incomplete || 12} need attention`}</strong></div>
+              <div className={orderReady ? 'ready' : ''}><span>Draft order</span><strong>{orderReady ? `336 picks · ${draftFormat}` : 'Needs review'}</strong></div>
               <div className="ready"><span>Player pool</span><strong>{playerCount} sheet players ready</strong></div>
             </div>
             {message && <p className="form-message error">{message}</p>}
-            <button className="button primary setup-submit" disabled={working || !setupReady}>{working ? 'Creating 12-team draft room…' : setupReady ? 'Create league and enter commissioner control' : 'Complete league and team setup'}</button>
+            <button className="button primary setup-submit" disabled={working || !setupReady}>{working ? 'Creating 12-team draft room…' : setupReady ? 'Create league and enter commissioner control' : 'Complete league, teams, and order'}</button>
           </section>
         </form>
       </main>
@@ -224,7 +272,7 @@ export default function HomePage() {
             <span>Team owner</span><small>Pick, queue, trade, and view the live board</small>
           </button>
           <button type="button" className={role === 'admin' ? 'active' : ''} onClick={() => { setRole('admin'); setMessage(null); }}>
-            <span>Commissioner</span><small>Run the clock, approve picks, and control the broadcast</small>
+            <span>Commissioner</span><small>Run the clock, test animations, and edit setup</small>
           </button>
         </div>
         {role === 'team' && (
