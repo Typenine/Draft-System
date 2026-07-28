@@ -1,0 +1,22 @@
+name: Inspect generated parity
+
+on:
+  push:
+    branches: [full-east-west-parity-approval-logo]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install --no-audit --no-fund
+      - run: node scripts/materialize-parity-wrapper.mjs
+      - run: node scripts/finalize-runtime-adapters.mjs
+      - run: node scripts/inspect-generated-parity.mjs
