@@ -1,4 +1,5 @@
 export type DraftStatus = 'NOT_STARTED' | 'LIVE' | 'PAUSED' | 'COMPLETED';
+export type DraftFormat = 'linear' | 'snake';
 
 export type Team = {
   id: string;
@@ -56,11 +57,19 @@ export type Branding = {
   logoUrl: string | null;
 };
 
+export type DraftSettings = {
+  rounds: number;
+  clockSeconds: number;
+  draftFormat: DraftFormat;
+  baseOrder: string[];
+};
+
 export type DraftState = {
   configured: boolean;
   databaseConfigured?: boolean;
   leagueName?: string;
   branding?: Branding;
+  settings?: DraftSettings;
   draft: DraftSummary | null;
   teams: Team[];
   players: Player[];
@@ -75,6 +84,7 @@ export type Session =
   | { role: 'team'; teamId: string; exp: number };
 
 export type SetupTeamInput = {
+  id?: string;
   name: string;
   shortName?: string;
   primaryColor?: string;
