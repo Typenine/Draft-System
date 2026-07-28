@@ -1,0 +1,46 @@
+.card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #0a1120;
+}
+
+.mark {
+  width: 68px;
+  height: 68px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #15803d, #052e16);
+  color: white;
+  font-size: 1.2rem;
+  font-weight: 950;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.22);
+}
+
+.details { min-width: 0; }
+.details h3 { margin: 4px 0 5px; font-size: clamp(1.15rem, 2.4vw, 1.65rem); }
+.details p { margin: 0; color: var(--muted); }
+.link { white-space: nowrap; text-decoration: none; }
+
+.note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+  margin-top: 12px;
+  padding: 13px 15px;
+  border: 1px solid #15803d;
+  border-radius: 11px;
+  background: #052e16;
+  color: #bbf7d0;
+}
+.note span { color: #86efac; }
+
+@media (max-width: 760px) {
+  .card { grid-template-columns: auto minmax(0, 1fr); }
+  .link { grid-column: 1 / -1; text-align: center; }
+}
