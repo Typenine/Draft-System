@@ -25,6 +25,7 @@ const protectedPaths = [
   "src/app/admin-enhancements.css",
   "src/app/api/auth/login/route.ts",
   "src/app/api/setup/route.ts",
+  "src/app/commissioner/moderation.css",
   "src/app/commissioner/page.tsx",
   "src/app/commissioner/settings/page.tsx",
   "src/app/entry-flow.css",
@@ -40,10 +41,13 @@ const protectedPaths = [
   "src/components/setup/TeamSetupEditor.tsx",
   "src/data/draftable-player-source.ts",
   ...playerPayloadPaths,
+  "src/lib/branding.ts",
   "src/lib/db.ts",
   "src/lib/draftable-player-source.ts",
   "src/lib/store/admin.ts",
   "src/lib/store/draft.ts",
+  "src/lib/store/index.ts",
+  "src/lib/store/moderation.ts",
   "src/lib/store/setup.ts",
   "src/lib/types.ts",
 ];
@@ -96,12 +100,14 @@ await writeFile(homepagePath, homepage, "utf8");
 
 const commissionerPath = resolve(process.cwd(), "src/app/commissioner/page.tsx");
 let commissionerPage = await readFile(commissionerPath, "utf8");
-commissionerPage = replaceRequired(
-  commissionerPage,
-  "import { AnimationTestingPanel } from '@/components/admin/AnimationTestingPanel';",
-  "import { AnimationTestingPanel } from '@/components/admin/AnimationTestingPanel';\nimport { ClockDurationInput } from '@/components/setup/ClockDurationInput';",
-  "commissioner clock import",
-);
+if (!commissionerPage.includes("import { ClockDurationInput } from '@/components/setup/ClockDurationInput';")) {
+  commissionerPage = replaceRequired(
+    commissionerPage,
+    "import { AnimationTestingPanel } from '@/components/admin/AnimationTestingPanel';",
+    "import { AnimationTestingPanel } from '@/components/admin/AnimationTestingPanel';\nimport { ClockDurationInput } from '@/components/setup/ClockDurationInput';",
+    "commissioner clock import",
+  );
+}
 commissionerPage = replaceRequired(
   commissionerPage,
   "<a className=\"button\" href=\"/draft/overlay\" target=\"_blank\" rel=\"noreferrer\">Open full-screen broadcast</a>",
@@ -221,7 +227,7 @@ if (!teamSetup.includes("Set up the 12 teams") || !teamSetup.includes("Use leagu
 if (!orderEditor.includes("Snake") || !orderEditor.includes("All {rounds * teams.length} selections") || !draftStore.includes("generateSlotTeamIds")) {
   throw new Error("[standalone-adapter] Linear, snake, and traded-pick draft order tools were not preserved.");
 }
-if (!settingsPage.includes("update_setup") || !settingsPage.includes("DraftOrderEditor") || !adminStore.includes("action === 'update_setup'")) {
+if (!settingsPage.includes("update_setup") || !settingsPage.includes("DraftOrderEditor") || !(adminStore.includes("action === 'update_setup'") || adminStore.includes("normalizedAction === 'update_setup'"))) {
   throw new Error("[standalone-adapter] Persistent commissioner setup editing was not preserved.");
 }
 if (!adminSignIn.includes("Commissioner access code") || !commissionerPage.includes("AnimationTestingPanel")) {
