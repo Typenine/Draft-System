@@ -15,6 +15,19 @@ for (const [templatePath, outputPath] of runtimeTemplates) {
   await writeFile(resolve(process.cwd(), outputPath), template, 'utf8');
 }
 
+const commissionerPath = resolve(process.cwd(), 'src/app/commissioner/page.tsx');
+let commissioner = await readFile(commissionerPath, 'utf8');
+if (!commissioner.includes('href="/commissioner/media"')) {
+  commissioner = commissioner.replace(
+    '<a className="button" href="/commissioner/settings">Edit full setup</a>',
+    '<a className="button" href="/commissioner/settings">Edit full setup</a>\n            <a className="button" href="/commissioner/media">Player media</a>',
+  );
+}
+if (!commissioner.includes('href="/commissioner/media"')) {
+  throw new Error('[standalone-adapter] Player media controls were not linked from the commissioner room.');
+}
+await writeFile(commissionerPath, commissioner, 'utf8');
+
 const teamRoomPath = resolve(process.cwd(), 'src/app/draft/room/team/page.tsx');
 let teamRoom = await readFile(teamRoomPath, 'utf8');
 teamRoom = teamRoom.replace(
@@ -40,6 +53,9 @@ if (!draftRoute.includes('pendingPickView') || !draftRoute.includes("runAdminAct
 }
 if (!tradeRoute.includes("status = ${fullyAccepted ? 'accepted' : 'pending'}") || !tradeRoute.includes("action === 'approve'")) {
   throw new Error('[standalone-adapter] Commissioner-approved trade runtime was not materialized.');
+}
+if (!tradeRoute.includes('ensureFuturePicks') || !tradeRoute.includes('draft_future_picks')) {
+  throw new Error('[standalone-adapter] Future pick trade assets were not materialized.');
 }
 if (!rosterRoute.includes('FROM draft_roster_ownership') || rosterRoute.includes('state.picks.filter')) {
   throw new Error('[standalone-adapter] Ownership-aware team roster runtime was not materialized.');
