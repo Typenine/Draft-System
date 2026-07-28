@@ -16,8 +16,15 @@ const adminStore = await source('src/lib/store/admin.ts');
 const moderation = await source('src/lib/store/moderation.ts');
 const draftRoute = await source('src/app/api/draft/route.ts');
 const tradeRoute = await source('src/app/api/draft/trade/route.ts');
+const rosterRoute = await source('src/app/api/draft/team-roster/route.ts');
+const mediaRoute = await source('src/app/api/draft/player-videos/route.ts');
+const imageRoute = await source('src/app/api/draft/player-image/route.ts');
+const boardRoute = await source('src/app/api/team-prospect-draftboard/route.ts');
 const compat = await source('src/lib/draft-compat.ts');
 const commissioner = await source('src/app/commissioner/page.tsx');
+const mediaPage = await source('src/app/commissioner/media/page.tsx');
+const archives = await source('src/app/archives/page.tsx');
+const archiveRoute = await source('src/app/api/archives/route.ts');
 const overlay = await source('src/components/draft-overlay/DraftOverlayLive.tsx');
 const teamRoom = await source('src/app/draft/room/team/page.tsx');
 
@@ -26,6 +33,9 @@ requireMarkers('src/lib/db.ts', db, [
   'CREATE TABLE IF NOT EXISTS draft_pending_picks',
   'CREATE TABLE IF NOT EXISTS draft_trades',
   'CREATE TABLE IF NOT EXISTS draft_roster_ownership',
+  'CREATE TABLE IF NOT EXISTS draft_future_picks',
+  'CREATE TABLE IF NOT EXISTS draft_team_boards',
+  'CREATE TABLE IF NOT EXISTS draft_player_media',
   "WHERE logo_url IS NULL OR btrim(logo_url) = ''",
 ]);
 requireMarkers('src/lib/store/draft.ts', draftStore, [
@@ -34,18 +44,24 @@ requireMarkers('src/lib/store/draft.ts', draftStore, [
   'rejectPendingPick',
   "pause_reason = 'pick_animation'",
   'pendingTrades: await listModerationTrades',
+  'draft_roster_ownership',
 ]);
 requireMarkers('src/lib/store/admin.ts', adminStore, [
   "normalizedAction === 'approve_pick'",
   "normalizedAction === 'approve_trade'",
   "normalizedAction === 'finish_pick_animation'",
   "normalizedAction === 'finish_trade_animation'",
+  "normalizedAction === 'force_pick'",
+  "normalizedAction === 'undo'",
+  "normalizedAction === 'skip'",
 ]);
 requireMarkers('src/lib/store/moderation.ts', moderation, [
   "String(trade.status) !== 'accepted'",
   "status = 'approved'",
   'animation_pending = true',
   "pause_reason = 'trade_animation'",
+  'draft_roster_ownership',
+  'draft_future_picks',
 ]);
 requireMarkers('src/app/api/draft/route.ts', draftRoute, [
   'pendingPickView',
@@ -55,6 +71,8 @@ requireMarkers('src/app/api/draft/route.ts', draftRoute, [
   "'queue_get'",
   "'queue_set'",
   "action === 'presence'",
+  "'auto_pick'",
+  "'repair_state'",
 ]);
 requireMarkers('src/app/api/draft/trade/route.ts', tradeRoute, [
   "status = ${fullyAccepted ? 'accepted' : 'pending'}",
@@ -63,10 +81,35 @@ requireMarkers('src/app/api/draft/trade/route.ts', tradeRoute, [
   "action === 'admin_reject'",
   "action === 'propose'",
   "action === 'cancel'",
+  'ensureFuturePicks',
+  'draft_future_picks',
 ]);
 if (tradeRoute.includes("status = ${fullyAccepted ? 'approved' : 'pending'}")) {
   throw new Error('[parity] Team acceptance still auto-approves trades.');
 }
+requireMarkers('src/app/api/draft/team-roster/route.ts', rosterRoute, [
+  'FROM draft_roster_ownership',
+  'owner_team_id',
+  'fromSnapshot: true',
+]);
+if (rosterRoute.includes('state.picks.filter')) {
+  throw new Error('[parity] Team roster still ignores approved player trades.');
+}
+requireMarkers('src/app/api/draft/player-videos/route.ts', mediaRoute, [
+  'draft_player_media',
+  'commissioner_required',
+  'imageUrl',
+  'videoUrl',
+]);
+requireMarkers('src/app/api/draft/player-image/route.ts', imageRoute, [
+  'draft_player_media',
+  'NextResponse.redirect',
+]);
+requireMarkers('src/app/api/team-prospect-draftboard/route.ts', boardRoute, [
+  'draft_team_boards',
+  'orderIds',
+  'ON CONFLICT (team_id)',
+]);
 requireMarkers('src/lib/draft-compat.ts', compat, [
   'eventLogoUrl(state.branding?.logoUrl)',
   'resumeAfterAnimation: Boolean(trade.resume_after_animation)',
@@ -78,17 +121,35 @@ requireMarkers('src/app/commissioner/page.tsx', commissioner, [
   "action('approve_trade'",
   'commissioner-event-logo',
   'Open team-view tester',
+  'href="/commissioner/media"',
+]);
+requireMarkers('src/app/commissioner/media/page.tsx', mediaPage, [
+  'Player Media',
+  '/api/draft/player-videos',
+  'Save media',
+]);
+requireMarkers('src/app/archives/page.tsx', archives, [
+  '/api/archives',
+  'Saved board',
+]);
+requireMarkers('src/app/api/archives/route.ts', archiveRoute, [
+  'listArchives',
+  'Cache-Control',
 ]);
 requireMarkers('src/components/draft-overlay/DraftOverlayLive.tsx', overlay, [
   'boardRoundStart',
   'visibleBoardRounds',
   'pendingTradeAnimation',
+  '/api/draft/player-videos',
 ]);
 requireMarkers('src/app/draft/room/team/page.tsx', teamRoom, [
   'Admin mode — view as team',
   'Array.from(new Set((draft?.allSlots || [])',
   'Pick Submitted — Awaiting Admin Approval',
   'DraftTradeCenter',
+  'TeamProspectDraftboardCompact',
+  'Instant submit',
+  'My upcoming picks',
 ]);
 
-console.log('[parity] Standalone draft runtime matches the required East v. West approval, queue, trade, animation, and board workflows.');
+console.log('[parity] Standalone runtime preserves East v. West approvals, queues, trades, ownership, future assets, media, prospect boards, animations, archives, and commissioner recovery controls.');
