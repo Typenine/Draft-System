@@ -12,7 +12,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "pretypecheck": "node scripts/materialize-parity-wrapper.mjs && node scripts/finalize-runtime-adapters.mjs"
+    "pretypecheck": "node scripts/materialize-parity-wrapper.mjs && node scripts/finalize-runtime-adapters.mjs",
+    "posttypecheck": "node scripts/verify-runtime-parity.mjs"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
