@@ -193,6 +193,22 @@ export async function ensureSchema(): Promise<void> {
         )
       `;
       await sql`
+        CREATE TABLE IF NOT EXISTS draft_team_boards (
+          team_id text PRIMARY KEY REFERENCES draft_teams(id) ON DELETE CASCADE,
+          data jsonb NOT NULL DEFAULT '{}'::jsonb,
+          updated_at timestamptz NOT NULL DEFAULT now()
+        )
+      `;
+      await sql`
+        CREATE TABLE IF NOT EXISTS draft_player_media (
+          player_id text PRIMARY KEY REFERENCES draft_players(id) ON DELETE CASCADE,
+          player_name text,
+          image_url text,
+          video_url text,
+          updated_at timestamptz NOT NULL DEFAULT now()
+        )
+      `;
+      await sql`
         INSERT INTO draft_roster_ownership
           (draft_id, player_id, owner_team_id, player_name, player_position, player_pro_team, acquired_at)
         SELECT draft_id, player_id, team_id, player_name, player_position, player_pro_team, made_at
