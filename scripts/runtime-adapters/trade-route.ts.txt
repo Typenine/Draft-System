@@ -26,6 +26,29 @@ function mapAsset(row: Row) {
     pickRound: row.pick_round == null ? null : Number(row.pick_round), pickOriginalTeam: row.pick_original_team ? String(row.pick_original_team) : null,
   };
 }
+function configuredDraftYear(name: string): number {
+  const match = name.match(/\b(20\d{2})\b/);
+  return match ? Number(match[1]) : new Date().getFullYear();
+}
+async function ensureFuturePicks(draftId: string, state: Awaited<ReturnType<typeof getDraftState>>) {
+  if (!state.draft || !state.teams.length) return;
+  const sql = getSql();
+  const existing = Number(rowsOf<Row>(await sql`SELECT COUNT(*)::int AS total FROM draft_future_picks WHERE draft_id = ${draftId}`)[0]?.total || 0);
+  if (existing) return;
+  const firstYear = configuredDraftYear(state.draft.name) + 1;
+  const futureRounds = Math.min(4, Math.max(1, state.draft.rounds));
+  for (let yearOffset = 0; yearOffset < 3; yearOffset += 1) {
+    for (let round = 1; round <= futureRounds; round += 1) {
+      for (const team of state.teams) {
+        await sql`
+          INSERT INTO draft_future_picks (id, draft_id, pick_year, pick_round, original_team_id, owner_team_id)
+          VALUES (${randomUUID()}, ${draftId}, ${firstYear + yearOffset}, ${round}, ${team.id}, ${team.id})
+          ON CONFLICT (draft_id, pick_year, pick_round, original_team_id) DO NOTHING
+        `;
+      }
+    }
+  }
+}
 async function mappedTrades(draftId: string, team?: string | null) {
   const sql = getSql();
   const rows = rowsOf<Row>(await sql`SELECT * FROM draft_trades WHERE draft_id = ${draftId} ORDER BY proposed_at DESC`);
@@ -52,6 +75,7 @@ export async function GET(req: NextRequest) {
       const state = await getDraftState();
       const selected = state.teams.find((item) => item.name === team || item.id === team);
       if (!selected) return json({ rosterPlayers: [], futurePicks: [], currentPicks: [] });
+      await ensureFuturePicks(draftId, state);
       const picked = new Set(state.picks.map((pick) => pick.overall));
       const rosterPlayers = rowsOf<Row>(await sql`
         SELECT player_id, player_name, player_position, player_pro_team
