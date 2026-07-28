@@ -2,12 +2,14 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const fullTargets = [
-  'src/app/api/draft/route.ts',
+  'src/app/api/draft/team-roster/route.ts',
+  'src/app/api/draft/player-videos/route.ts',
+  'src/app/api/draft/player-image/route.ts',
+  'src/app/api/team-prospect-draftboard/route.ts',
   'src/app/api/draft/trade/route.ts',
-  'src/lib/draft-compat.ts',
-  'src/lib/legacy-draft.ts',
-  'src/lib/draft-legacy.ts',
-  'src/lib/store/shared.ts',
+  'src/app/archives/page.tsx',
+  'src/app/api/archives/route.ts',
+  'src/app/draft/room/team/page.tsx',
 ];
 
 for (const relativePath of fullTargets) {
