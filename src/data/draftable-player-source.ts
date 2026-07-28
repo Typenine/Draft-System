@@ -1,0 +1,26 @@
+export const DRAFTABLE_PLAYER_SOURCE = {
+  spreadsheetId: '1bmRbyUcnpfLi2PenEZ4Y_pUqmvzT9eqFj2_UkEK8eaI',
+  spreadsheetTitle: '2026 NFL Draftable Player Pool - Offense and IDP',
+  sheetName: 'Draftable Players',
+  sheetId: 117434665,
+  sourceUrl: 'https://docs.google.com/spreadsheets/d/1bmRbyUcnpfLi2PenEZ4Y_pUqmvzT9eqFj2_UkEK8eaI/edit#gid=117434665',
+  syncedAt: '2026-07-28T14:32:45.929Z',
+  playerCount: 2340,
+  positionCounts: {
+    QB: 119,
+    RB: 213,
+    WR: 388,
+    TE: 195,
+    K: 43,
+    DL: 444,
+    LB: 374,
+    DB: 564,
+  },
+  statusCounts: {
+    ACT: 2285,
+    RES: 31,
+    E14: 13,
+    RET: 8,
+    CUT: 3,
+  },
+} as const;
