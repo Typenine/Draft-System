@@ -31,7 +31,7 @@ export async function ensureSchema(): Promise<void> {
           primary_color text NOT NULL DEFAULT '#2563eb',
           secondary_color text NOT NULL DEFAULT '#0f172a',
           logo_url text,
-          rounds integer NOT NULL DEFAULT 4,
+          rounds integer NOT NULL DEFAULT 28,
           clock_seconds integer NOT NULL DEFAULT 120,
           updated_at timestamptz NOT NULL DEFAULT now()
         )
