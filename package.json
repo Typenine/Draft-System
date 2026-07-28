@@ -6,6 +6,7 @@
     "node": "24.x"
   },
   "scripts": {
+    "predev": "node scripts/materialize-parity-wrapper.mjs",
     "dev": "next dev",
     "prebuild": "node scripts/materialize-parity-wrapper.mjs",
     "build": "next build",
