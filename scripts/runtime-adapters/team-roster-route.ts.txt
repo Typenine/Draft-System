@@ -1,0 +1,36 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { ensureSchema, getSql } from '@/lib/db';
+import { getDraftState } from '@/lib/store';
+import { rowsOf, type Row } from '@/lib/store/shared';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+export async function GET(req: NextRequest) {
+  try {
+    await ensureSchema();
+    const state = await getDraftState();
+    const teamName = req.nextUrl.searchParams.get('team') || '';
+    const draftId = req.nextUrl.searchParams.get('draftId') || state.draft?.id || '';
+    const team = state.teams.find((item) => item.name === teamName || item.id === teamName);
+    if (!team || !draftId) return NextResponse.json({ players: [], fromSnapshot: true }, { headers: { 'Cache-Control': 'no-store' } });
+    const players = rowsOf<Row>(await getSql()`
+      SELECT player_id, player_name, player_position, player_pro_team
+      FROM draft_roster_ownership
+      WHERE draft_id = ${draftId} AND owner_team_id = ${team.id}
+      ORDER BY CASE player_position
+        WHEN 'QB' THEN 1 WHEN 'RB' THEN 2 WHEN 'WR' THEN 3 WHEN 'TE' THEN 4 WHEN 'K' THEN 5
+        WHEN 'DL' THEN 6 WHEN 'DE' THEN 6 WHEN 'DT' THEN 6 WHEN 'LB' THEN 7
+        WHEN 'CB' THEN 8 WHEN 'S' THEN 8 WHEN 'DB' THEN 8 WHEN 'DEF' THEN 9 ELSE 10 END,
+        player_name
+    `).map((row) => ({
+      id: String(row.player_id),
+      name: String(row.player_name),
+      pos: String(row.player_position),
+      nfl: row.player_pro_team ? String(row.player_pro_team) : '',
+    }));
+    return NextResponse.json({ players, fromSnapshot: true }, { headers: { 'Cache-Control': 'no-store' } });
+  } catch (error) {
+    return NextResponse.json({ players: [], fromSnapshot: false, error: error instanceof Error ? error.message : 'roster_load_failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+  }
+}
