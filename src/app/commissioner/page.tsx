@@ -6,6 +6,7 @@ import { Clock } from '@/components/Clock';
 import { DraftBoard } from '@/components/DraftBoard';
 import { TeamMark } from '@/components/TeamMark';
 import { useDraftState } from '@/components/useDraftState';
+import DraftOverlayLive from '@/components/draft-overlay/DraftOverlayLive';
 import type { SetupPlayerInput } from '@/lib/types';
 
 function parsePlayers(value: string): SetupPlayerInput[] {
@@ -63,13 +64,24 @@ export default function CommissionerPage() {
   if (!authorized) return null;
 
   return (
-    <main className="app-page">
+    <main className="app-page commissioner-page">
       <AppHeader state={state} showLogout />
-      <section className="page-heading">
-        <div><span className="eyebrow">Commissioner console</span><h1>{state.draft?.name || 'Draft'}</h1></div>
-        <div className="status-cluster">
-          <span className={`status-pill status-${state.draft?.status.toLowerCase()}`}>{state.draft?.status.replace('_', ' ')}</span>
-          <Clock deadline={state.draft?.deadlineTs || null} status={state.draft?.status} fallback={state.draft?.clockSeconds || 0} />
+
+      <section className="commissioner-stage">
+        <div className="commissioner-stage-heading">
+          <div>
+            <span className="eyebrow">Commissioner draft room</span>
+            <h1>{state.draft?.name || 'Draft'}</h1>
+            <p>The broadcast board and animations are the primary workspace. Controls remain directly below it.</p>
+          </div>
+          <div className="commissioner-stage-actions">
+            <span className={`status-pill status-${state.draft?.status.toLowerCase()}`}>{state.draft?.status.replace('_', ' ')}</span>
+            <Clock deadline={state.draft?.deadlineTs || null} status={state.draft?.status} fallback={state.draft?.clockSeconds || 0} />
+            <a className="button" href="/draft/overlay" target="_blank" rel="noreferrer">Open full-screen broadcast</a>
+          </div>
+        </div>
+        <div className="commissioner-overlay-frame">
+          <DraftOverlayLive />
         </div>
       </section>
 
@@ -100,7 +112,7 @@ export default function CommissionerPage() {
 
         <div className="panel control-panel">
           <h2>Create another draft</h2>
-          <p className="muted">The current draft remains available in Archives. Team setup and the player pool carry forward.</p>
+          <p className="muted">The current draft remains available in Archives. The 12 teams, 28-round format, and player pool carry forward.</p>
           <label>Draft name<input value={newDraftName} onChange={(e) => setNewDraftName(e.target.value)} placeholder={`Draft ${new Date().getFullYear() + 1}`} /></label>
           <div className="input-row">
             <button className="button primary" disabled={working} onClick={() => action('create', { name: newDraftName || `Draft ${new Date().getFullYear() + 1}` })}>Create draft</button>
@@ -128,7 +140,7 @@ export default function CommissionerPage() {
       </section>
 
       <section className="panel section-panel board-section">
-        <div className="section-title"><div><span className="eyebrow">Live board</span><h2>All rounds</h2></div><a className="button" href="/broadcast" target="_blank">Open broadcast</a></div>
+        <div className="section-title"><div><span className="eyebrow">Complete draft</span><h2>All 28 rounds</h2></div></div>
         <DraftBoard state={state} />
       </section>
     </main>
