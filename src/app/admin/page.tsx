@@ -2,17 +2,49 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 
+const placeholderNames = ['Alpha Wolves', 'Bay City', 'Capital Club', 'Desert Storm'];
+
+type StateResponse = {
+  configured?: boolean;
+  leagueName?: string;
+  picks?: unknown[];
+  teams?: Array<{ name?: string }>;
+};
+
 export default function AdminSignInPage() {
   const [code, setCode] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    void fetch('/api/auth/session', { cache: 'no-store' }).then(async (response) => {
-      if (!response.ok) return;
-      const session = await response.json();
-      if (session.role === 'admin') window.location.href = '/commissioner';
-    }).catch(() => {});
+    void Promise.all([
+      fetch('/api/state', { cache: 'no-store' }),
+      fetch('/api/auth/session', { cache: 'no-store' }),
+    ]).then(async ([stateResponse, sessionResponse]) => {
+      const state = stateResponse.ok ? await stateResponse.json() as StateResponse : null;
+      const placeholderLeague = Boolean(
+        state?.configured
+          && state.leagueName === 'Draft League'
+          && state.picks?.length === 0
+          && state.teams?.length === placeholderNames.length
+          && state.teams.every((team, index) => team.name === placeholderNames[index]),
+      );
+
+      if (!state?.configured || placeholderLeague) {
+        window.location.replace('/');
+        return;
+      }
+
+      if (sessionResponse.ok) {
+        const session = await sessionResponse.json();
+        if (session.role === 'admin') {
+          window.location.replace('/commissioner');
+          return;
+        }
+      }
+      setChecking(false);
+    }).catch(() => setChecking(false));
   }, []);
 
   async function signIn(event: FormEvent) {
@@ -32,6 +64,8 @@ export default function AdminSignInPage() {
     setMessage(String(data.error || 'Commissioner sign in failed.'));
     setWorking(false);
   }
+
+  if (checking) return <main className="center-screen"><div className="loader" />Checking league setup…</main>;
 
   return (
     <main className="admin-signin-page">
