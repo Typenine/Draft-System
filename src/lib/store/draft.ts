@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto';
+import { eventLogoUrl } from '../branding';
 import { ensureSchema, getSql } from '../db';
-import type { ArchiveDraft, DraftFormat, DraftState } from '../types';
+import type { ArchiveDraft, DraftFormat, DraftState, PendingPick } from '../types';
+import { listModerationTrades } from './moderation';
 import { activeDraftRow, int, loadDraftPieces, mapDraft, mapPlayer, mapTeam, rowsOf, type Row } from './shared';
 
 function parsedStringArray(value: unknown): string[] {
@@ -43,6 +45,36 @@ function normalizeSlotOrder(order: unknown, generated: string[], validTeamIds: s
   const valid = new Set(validTeamIds);
   if (proposed.length === generated.length && proposed.every((teamId) => valid.has(teamId))) return proposed;
   return generated;
+}
+
+function mapPendingPick(row: Row): PendingPick {
+  return {
+    id: String(row.id),
+    draftId: String(row.draft_id),
+    overall: int(row.overall),
+    teamId: String(row.team_id),
+    teamName: String(row.team_name),
+    playerId: String(row.player_id),
+    playerName: String(row.player_name),
+    playerPosition: String(row.player_position),
+    playerProTeam: row.player_pro_team ? String(row.player_pro_team) : null,
+    submittedAt: new Date(String(row.submitted_at)).toISOString(),
+  };
+}
+
+export async function getPendingPick(draftId?: string | null): Promise<PendingPick | null> {
+  await ensureSchema();
+  const sql = getSql();
+  const id = draftId || String((await activeDraftRow())?.id || '');
+  if (!id) return null;
+  const row = rowsOf<Row>(await sql`
+    SELECT pending.*, team.name AS team_name
+    FROM draft_pending_picks pending
+    JOIN draft_teams team ON team.id = pending.team_id
+    WHERE pending.draft_id = ${id} AND pending.status = 'pending'
+    ORDER BY pending.submitted_at DESC LIMIT 1
+  `)[0];
+  return row ? mapPendingPick(row) : null;
 }
 
 export async function createDraft(name: string, options: {
@@ -88,7 +120,7 @@ export async function advanceDraft(draftId: string, currentOverall: number, stat
   if (currentOverall >= total) {
     await sql`
       UPDATE drafts SET status = 'COMPLETED', completed_at = now(), deadline_ts = NULL,
-        paused_remaining_seconds = NULL WHERE id = ${draftId}
+        paused_remaining_seconds = NULL, pause_reason = NULL WHERE id = ${draftId}
     `;
     return;
   }
@@ -96,7 +128,8 @@ export async function advanceDraft(draftId: string, currentOverall: number, stat
     UPDATE drafts
     SET current_overall = ${currentOverall + 1},
         deadline_ts = CASE WHEN ${status} = 'LIVE' THEN now() + (${clockSeconds} * interval '1 second') ELSE NULL END,
-        paused_remaining_seconds = NULL
+        paused_remaining_seconds = NULL,
+        pause_reason = NULL
     WHERE id = ${draftId}
   `;
 }
@@ -115,21 +148,116 @@ export async function makePickInternal(draftId: string, teamId: string, playerId
       AND s.team_id = ${teamId}
       AND NOT EXISTS (SELECT 1 FROM draft_picks existing WHERE existing.draft_id = d.id AND existing.player_id = p.id)
     ON CONFLICT DO NOTHING
-    RETURNING overall
+    RETURNING overall, round, player_id, player_name, player_position, player_pro_team
   `);
   if (!inserted.length) return false;
 
   const draft = rowsOf<Row>(await sql`SELECT status, clock_seconds FROM drafts WHERE id = ${draftId} LIMIT 1`)[0];
-  const overall = int(inserted[0].overall);
+  const pick = inserted[0];
+  const overall = int(pick.overall);
   await sql`DELETE FROM draft_queues WHERE draft_id = ${draftId} AND player_id = ${playerId}`;
+  await sql`
+    INSERT INTO draft_roster_ownership
+      (draft_id, player_id, owner_team_id, player_name, player_position, player_pro_team)
+    VALUES (${draftId}, ${String(pick.player_id)}, ${teamId}, ${String(pick.player_name)}, ${String(pick.player_position)},
+      ${pick.player_pro_team ? String(pick.player_pro_team) : null})
+    ON CONFLICT (draft_id, player_id) DO UPDATE SET owner_team_id = EXCLUDED.owner_team_id,
+      player_name = EXCLUDED.player_name, player_position = EXCLUDED.player_position,
+      player_pro_team = EXCLUDED.player_pro_team, acquired_at = now()
+  `;
   await advanceDraft(draftId, overall, String(draft.status), int(draft.clock_seconds, 120));
+  const after = rowsOf<Row>(await sql`SELECT status FROM drafts WHERE id = ${draftId} LIMIT 1`)[0];
+  if (after && String(after.status) !== 'COMPLETED') {
+    await sql`
+      UPDATE drafts SET status = 'PAUSED', pause_reason = 'pick_animation', deadline_ts = NULL,
+        paused_remaining_seconds = clock_seconds
+      WHERE id = ${draftId}
+    `;
+  }
   return true;
 }
 
 export async function submitPick(teamId: string, playerId: string): Promise<boolean> {
   await ensureSchema();
+  const sql = getSql();
   const draft = await activeDraftRow();
-  return draft ? makePickInternal(String(draft.id), teamId, playerId) : false;
+  if (!draft || String(draft.status) !== 'LIVE') return false;
+  const draftId = String(draft.id);
+  const overall = int(draft.current_overall, 1);
+  const slot = rowsOf<Row>(await sql`SELECT team_id FROM draft_slots WHERE draft_id = ${draftId} AND overall = ${overall} LIMIT 1`)[0];
+  if (!slot || String(slot.team_id) !== teamId) return false;
+  const existing = await getPendingPick(draftId);
+  if (existing) return existing.teamId === teamId && existing.playerId === playerId && existing.overall === overall;
+  const player = rowsOf<Row>(await sql`
+    SELECT * FROM draft_players player
+    WHERE player.id = ${playerId}
+      AND NOT EXISTS (SELECT 1 FROM draft_picks pick WHERE pick.draft_id = ${draftId} AND pick.player_id = player.id)
+    LIMIT 1
+  `)[0];
+  if (!player) return false;
+  const remaining = draft.deadline_ts
+    ? Math.max(1, Math.ceil((new Date(String(draft.deadline_ts)).getTime() - Date.now()) / 1000))
+    : int(draft.clock_seconds, 120);
+  const pendingId = randomUUID();
+  const inserted = rowsOf<Row>(await sql`
+    INSERT INTO draft_pending_picks
+      (id, draft_id, overall, team_id, player_id, player_name, player_position, player_pro_team)
+    VALUES (${pendingId}, ${draftId}, ${overall}, ${teamId}, ${playerId}, ${String(player.name)},
+      ${String(player.position)}, ${player.pro_team ? String(player.pro_team) : null})
+    ON CONFLICT DO NOTHING
+    RETURNING id
+  `);
+  if (!inserted.length) return false;
+  await sql`
+    UPDATE drafts SET status = 'PAUSED', pause_reason = 'pending_pick',
+      paused_remaining_seconds = ${remaining}, deadline_ts = NULL
+    WHERE id = ${draftId} AND status = 'LIVE' AND current_overall = ${overall}
+  `;
+  return true;
+}
+
+export async function approvePendingPick(): Promise<void> {
+  await ensureSchema();
+  const sql = getSql();
+  const draft = await activeDraftRow();
+  if (!draft) throw new Error('no_draft');
+  const pending = await getPendingPick(String(draft.id));
+  if (!pending) throw new Error('no_pending_pick');
+  if (pending.overall !== int(draft.current_overall, 1)) throw new Error('stale_pending_pick');
+  const ok = await makePickInternal(pending.draftId, pending.teamId, pending.playerId, true);
+  if (!ok) throw new Error('pick_approval_failed');
+  await sql`
+    UPDATE draft_pending_picks SET status = 'approved', reviewed_at = now()
+    WHERE id = ${pending.id} AND status = 'pending'
+  `;
+}
+
+export async function rejectPendingPick(): Promise<void> {
+  await ensureSchema();
+  const sql = getSql();
+  const draft = await activeDraftRow();
+  if (!draft) throw new Error('no_draft');
+  const pending = await getPendingPick(String(draft.id));
+  if (!pending) throw new Error('no_pending_pick');
+  await sql`UPDATE draft_pending_picks SET status = 'rejected', reviewed_at = now() WHERE id = ${pending.id}`;
+  await sql`
+    UPDATE drafts SET status = 'LIVE', pause_reason = NULL,
+      deadline_ts = now() + (GREATEST(1, COALESCE(paused_remaining_seconds, clock_seconds)) * interval '1 second'),
+      paused_remaining_seconds = NULL
+    WHERE id = ${pending.draftId} AND status = 'PAUSED' AND pause_reason = 'pending_pick'
+  `;
+}
+
+export async function finishPickAnimation(): Promise<void> {
+  await ensureSchema();
+  const sql = getSql();
+  const draft = await activeDraftRow();
+  if (!draft) return;
+  await sql`
+    UPDATE drafts SET status = 'LIVE', started_at = COALESCE(started_at, now()), pause_reason = NULL,
+      deadline_ts = now() + (clock_seconds * interval '1 second'), paused_remaining_seconds = NULL
+    WHERE id = ${String(draft.id)} AND status = 'PAUSED' AND pause_reason = 'pick_animation'
+  `;
 }
 
 async function autoPickExpiredDraft(): Promise<void> {
@@ -165,7 +293,7 @@ export async function getDraftState(): Promise<DraftState> {
   const sql = getSql();
   const settings = rowsOf<Row>(await sql`SELECT * FROM draft_settings WHERE id = 1 LIMIT 1`)[0];
   if (!settings) {
-    return { configured: false, databaseConfigured: true, draft: null, teams: [], players: [], slots: [], picks: [], currentTeam: null, availablePlayers: [] };
+    return { configured: false, databaseConfigured: true, draft: null, teams: [], players: [], slots: [], picks: [], pendingPick: null, pendingTrades: [], currentTeam: null, availablePlayers: [] };
   }
   const teams = rowsOf<Row>(await sql`SELECT * FROM draft_teams ORDER BY sort_order`).map(mapTeam);
   const players = rowsOf<Row>(await sql`SELECT * FROM draft_players ORDER BY rank, name`).map(mapPlayer);
@@ -180,7 +308,7 @@ export async function getDraftState(): Promise<DraftState> {
     branding: {
       primaryColor: String(settings.primary_color),
       secondaryColor: String(settings.secondary_color),
-      logoUrl: settings.logo_url ? String(settings.logo_url) : null,
+      logoUrl: eventLogoUrl(settings.logo_url),
     },
     settings: {
       rounds: int(settings.rounds, 28),
@@ -191,17 +319,25 @@ export async function getDraftState(): Promise<DraftState> {
     teams,
     players,
   };
-  if (!draftRow) return { ...base, draft: null, slots: [], picks: [], currentTeam: null, availablePlayers: players };
+  if (!draftRow) return { ...base, draft: null, slots: [], picks: [], pendingPick: null, pendingTrades: [], currentTeam: null, availablePlayers: players };
 
-  const draft = mapDraft(draftRow);
+  const draft = {
+    ...mapDraft(draftRow),
+    pauseReason: draftRow.pause_reason ? String(draftRow.pause_reason) : null,
+    pausedRemainingSeconds: draftRow.paused_remaining_seconds == null ? null : int(draftRow.paused_remaining_seconds),
+  };
   const { slots, picks } = await loadDraftPieces(draft.id);
+  const pendingPick = await getPendingPick(draft.id);
   const pickedIds = new Set(picks.map((pick) => pick.playerId));
+  if (pendingPick) pickedIds.add(pendingPick.playerId);
   const currentSlot = slots.find((slot) => slot.overall === draft.currentOverall);
   return {
     ...base,
     draft,
     slots,
     picks,
+    pendingPick,
+    pendingTrades: await listModerationTrades(draft.id),
     currentTeam: currentSlot ? teams.find((team) => team.id === currentSlot.teamId) || null : null,
     availablePlayers: players.filter((player) => !pickedIds.has(player.id)),
   };
