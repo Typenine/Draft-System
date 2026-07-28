@@ -1,7 +1,19 @@
 import { hashCode } from '../auth';
+import { DEFAULT_EVENT_LOGO, eventLogoUrl } from '../branding';
 import { ensureSchema, getSql } from '../db';
 import type { DraftFormat, SetupPlayerInput, SetupTeamInput } from '../types';
-import { advanceDraft, createDraft, makePickInternal, normalizeBaseOrder, normalizeDraftFormat } from './draft';
+import {
+  advanceDraft,
+  approvePendingPick,
+  createDraft,
+  finishPickAnimation,
+  getPendingPick,
+  makePickInternal,
+  normalizeBaseOrder,
+  normalizeDraftFormat,
+  rejectPendingPick,
+} from './draft';
+import { approveTrade, finishTradeAnimation, rejectTrade, resetTrades } from './moderation';
 import { activeDraftRow, int, normalizePlayers, rowsOf, type Row } from './shared';
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
@@ -18,19 +30,20 @@ function stringArray(value: unknown): string[] {
 export async function runAdminAction(action: string, body: Record<string, unknown>): Promise<void> {
   await ensureSchema();
   const sql = getSql();
+  const normalizedAction = action === 'skip_pick' ? 'skip' : action === 'update_slot' ? 'set_slot' : action;
   let draft = await activeDraftRow();
 
-  if (action === 'create') {
+  if (normalizedAction === 'create') {
     await createDraft(String(body.name || `Draft ${new Date().getFullYear()}`));
     return;
   }
-  if (action === 'update_branding') {
+  if (normalizedAction === 'update_branding') {
     await sql`
       UPDATE draft_settings SET
-        league_name = ${String(body.leagueName || 'Draft League')},
-        primary_color = ${String(body.primaryColor || '#2563eb')},
-        secondary_color = ${String(body.secondaryColor || '#0f172a')},
-        logo_url = ${body.logoUrl ? String(body.logoUrl) : null},
+        league_name = ${String(body.leagueName || body.eventName || 'Draft League')},
+        primary_color = ${String(body.primaryColor || body.eventColor1 || '#2563eb')},
+        secondary_color = ${String(body.secondaryColor || body.eventColor2 || '#0f172a')},
+        logo_url = ${eventLogoUrl(body.logoUrl || body.eventLogoUrl)},
         updated_at = now()
       WHERE id = 1
     `;
@@ -40,7 +53,40 @@ export async function runAdminAction(action: string, body: Record<string, unknow
   const draftId = String(draft.id);
   const clockSeconds = int(draft.clock_seconds, 120);
 
-  if (action === 'update_setup') {
+  if (normalizedAction === 'approve_pick') {
+    await approvePendingPick();
+    return;
+  }
+  if (normalizedAction === 'reject_pick') {
+    await rejectPendingPick();
+    return;
+  }
+  if (normalizedAction === 'approve_trade') {
+    await approveTrade(String(body.tradeId || body.id || ''));
+    return;
+  }
+  if (normalizedAction === 'reject_trade') {
+    await rejectTrade(String(body.tradeId || body.id || ''));
+    return;
+  }
+  if (normalizedAction === 'finish_pick_animation') {
+    await finishPickAnimation();
+    return;
+  }
+  if (normalizedAction === 'finish_trade_animation') {
+    await finishTradeAnimation(draftId);
+    return;
+  }
+  if (normalizedAction === 'reset_trades') {
+    await resetTrades(draftId);
+    return;
+  }
+  if (normalizedAction === 'delete') {
+    await sql`DELETE FROM drafts WHERE id = ${draftId}`;
+    return;
+  }
+
+  if (normalizedAction === 'update_setup') {
     const currentTeams = rowsOf<Row>(await sql`SELECT id, primary_color, secondary_color FROM draft_teams ORDER BY sort_order`);
     const validTeamIds = currentTeams.map((team) => String(team.id));
     const validTeamSet = new Set(validTeamIds);
@@ -64,7 +110,7 @@ export async function runAdminAction(action: string, body: Record<string, unknow
       await sql`
         UPDATE draft_settings SET league_name = ${String(body.leagueName || 'Draft League').trim() || 'Draft League'},
           admin_code_hash = ${hashCode(adminCode)}, primary_color = ${primaryColor}, secondary_color = ${secondaryColor},
-          logo_url = ${body.logoUrl ? String(body.logoUrl) : null}, clock_seconds = ${nextClock},
+          logo_url = ${eventLogoUrl(body.logoUrl)}, clock_seconds = ${nextClock},
           draft_format = ${draftFormat}, base_order = ${JSON.stringify(baseOrder)}::jsonb, updated_at = now()
         WHERE id = 1
       `;
@@ -72,7 +118,7 @@ export async function runAdminAction(action: string, body: Record<string, unknow
       await sql`
         UPDATE draft_settings SET league_name = ${String(body.leagueName || 'Draft League').trim() || 'Draft League'},
           primary_color = ${primaryColor}, secondary_color = ${secondaryColor},
-          logo_url = ${body.logoUrl ? String(body.logoUrl) : null}, clock_seconds = ${nextClock},
+          logo_url = ${eventLogoUrl(body.logoUrl)}, clock_seconds = ${nextClock},
           draft_format = ${draftFormat}, base_order = ${JSON.stringify(baseOrder)}::jsonb, updated_at = now()
         WHERE id = 1
       `;
@@ -119,25 +165,31 @@ export async function runAdminAction(action: string, body: Record<string, unknow
     await sql`
       UPDATE drafts SET name = ${String(body.draftName || draft.name || 'Draft').trim() || 'Draft'},
         clock_seconds = ${nextClock}, deadline_ts = NULL,
-        paused_remaining_seconds = ${nextClock},
+        paused_remaining_seconds = ${nextClock}, pause_reason = 'manual',
         status = CASE WHEN status = 'LIVE' THEN 'PAUSED' ELSE status END
       WHERE id = ${draftId}
     `;
     return;
   }
 
-  if (action === 'start' || action === 'resume') {
+  if (normalizedAction === 'start' || normalizedAction === 'resume') {
+    if (await getPendingPick(draftId)) throw new Error('pending_pick_exists');
+    const animation = rowsOf<Row>(await sql`
+      SELECT id FROM draft_trades WHERE draft_id = ${draftId} AND animation_pending = true LIMIT 1
+    `)[0];
+    if (animation) throw new Error('animation_in_progress');
     const remaining = int(draft.paused_remaining_seconds, clockSeconds);
     await sql`
       UPDATE drafts SET status = 'LIVE', started_at = COALESCE(started_at, now()), completed_at = NULL,
-        deadline_ts = now() + (${Math.max(1, remaining)} * interval '1 second'), paused_remaining_seconds = NULL
+        deadline_ts = now() + (${Math.max(1, remaining)} * interval '1 second'), paused_remaining_seconds = NULL,
+        pause_reason = NULL
       WHERE id = ${draftId} AND status <> 'COMPLETED'
     `;
     return;
   }
-  if (action === 'pause') {
+  if (normalizedAction === 'pause') {
     await sql`
-      UPDATE drafts SET status = 'PAUSED',
+      UPDATE drafts SET status = 'PAUSED', pause_reason = 'manual',
         paused_remaining_seconds = CASE
           WHEN deadline_ts IS NULL THEN clock_seconds
           ELSE GREATEST(0, CEIL(EXTRACT(EPOCH FROM (deadline_ts - now())))::int)
@@ -147,52 +199,71 @@ export async function runAdminAction(action: string, body: Record<string, unknow
     `;
     return;
   }
-  if (action === 'reset') {
+  if (normalizedAction === 'reset') {
+    await sql`DELETE FROM draft_pending_picks WHERE draft_id = ${draftId}`;
     await sql`DELETE FROM draft_picks WHERE draft_id = ${draftId}`;
+    await sql`DELETE FROM draft_roster_ownership WHERE draft_id = ${draftId}`;
     await sql`DELETE FROM draft_queues WHERE draft_id = ${draftId}`;
+    await sql`UPDATE draft_trades SET animation_pending = false, resume_after_animation = false WHERE draft_id = ${draftId}`;
     await sql`
       UPDATE drafts SET status = 'NOT_STARTED', current_overall = 1, deadline_ts = NULL,
-        paused_remaining_seconds = NULL, started_at = NULL, completed_at = NULL WHERE id = ${draftId}
+        paused_remaining_seconds = NULL, pause_reason = NULL, started_at = NULL, completed_at = NULL WHERE id = ${draftId}
     `;
     return;
   }
-  if (action === 'undo') {
-    const last = rowsOf<Row>(await sql`SELECT overall FROM draft_picks WHERE draft_id = ${draftId} ORDER BY overall DESC LIMIT 1`)[0];
+  if (normalizedAction === 'undo') {
+    const last = rowsOf<Row>(await sql`SELECT overall, player_id FROM draft_picks WHERE draft_id = ${draftId} ORDER BY overall DESC LIMIT 1`)[0];
     if (!last) return;
     const overall = int(last.overall);
+    await sql`DELETE FROM draft_roster_ownership WHERE draft_id = ${draftId} AND player_id = ${String(last.player_id)}`;
     await sql`DELETE FROM draft_picks WHERE draft_id = ${draftId} AND overall = ${overall}`;
+    await sql`DELETE FROM draft_pending_picks WHERE draft_id = ${draftId} AND status = 'pending'`;
     await sql`
       UPDATE drafts SET current_overall = ${overall}, status = 'PAUSED', deadline_ts = NULL,
-        paused_remaining_seconds = clock_seconds, completed_at = NULL WHERE id = ${draftId}
+        paused_remaining_seconds = clock_seconds, pause_reason = 'manual', completed_at = NULL WHERE id = ${draftId}
     `;
     return;
   }
-  if (action === 'skip') {
+  if (normalizedAction === 'skip') {
+    if (await getPendingPick(draftId)) throw new Error('pending_pick_exists');
     await advanceDraft(draftId, int(draft.current_overall), String(draft.status), clockSeconds);
     return;
   }
-  if (action === 'set_slot') {
+  if (normalizedAction === 'set_slot') {
     const overall = int(body.overall);
-    const teamId = String(body.teamId || '');
+    const teamId = String(body.teamId || body.team || '');
     if (!overall || !teamId) throw new Error('invalid_slot');
+    const team = rowsOf<Row>(await sql`SELECT id FROM draft_teams WHERE id = ${teamId} OR name = ${teamId} LIMIT 1`)[0];
+    if (!team) throw new Error('invalid_team');
     await sql`
-      UPDATE draft_slots SET team_id = ${teamId}
+      UPDATE draft_slots SET team_id = ${String(team.id)}
       WHERE draft_id = ${draftId} AND overall = ${overall}
         AND NOT EXISTS (SELECT 1 FROM draft_picks p WHERE p.draft_id = ${draftId} AND p.overall = ${overall})
     `;
     return;
   }
-  if (action === 'set_clock') {
-    const nextClock = Math.max(10, int(body.clockSeconds, clockSeconds));
+  if (normalizedAction === 'set_clock') {
+    const nextClock = Math.max(10, int(body.clockSeconds ?? body.seconds, clockSeconds));
     await sql`UPDATE draft_settings SET clock_seconds = ${nextClock}, updated_at = now() WHERE id = 1`;
     await sql`
       UPDATE drafts SET clock_seconds = ${nextClock}, deadline_ts = NULL,
-        paused_remaining_seconds = ${nextClock}, status = CASE WHEN status = 'LIVE' THEN 'PAUSED' ELSE status END
+        paused_remaining_seconds = ${nextClock}, pause_reason = 'manual',
+        status = CASE WHEN status = 'LIVE' THEN 'PAUSED' ELSE status END
       WHERE id = ${draftId}
     `;
     return;
   }
-  if (action === 'replace_players') {
+  if (normalizedAction === 'reset_clock') {
+    if (String(draft.status) === 'LIVE') {
+      await sql`UPDATE drafts SET deadline_ts = now() + (clock_seconds * interval '1 second') WHERE id = ${draftId}`;
+    } else if (String(draft.pause_reason) === 'pick_animation') {
+      await finishPickAnimation();
+    } else if (String(draft.pause_reason) === 'trade_animation') {
+      await finishTradeAnimation(draftId);
+    }
+    return;
+  }
+  if (normalizedAction === 'replace_players' || normalizedAction === 'upload_players') {
     const pickCount = int(rowsOf<Row>(await sql`SELECT COUNT(*)::int AS total FROM draft_picks WHERE draft_id = ${draftId}`)[0]?.total);
     if (pickCount) throw new Error('cannot_replace_players_after_picks');
     const players = normalizePlayers(Array.isArray(body.players) ? body.players as SetupPlayerInput[] : []);
@@ -208,14 +279,49 @@ export async function runAdminAction(action: string, body: Record<string, unknow
     }
     return;
   }
-  if (action === 'force_pick') {
+  if (normalizedAction === 'clear_players') {
+    const pickCount = int(rowsOf<Row>(await sql`SELECT COUNT(*)::int AS total FROM draft_picks WHERE draft_id = ${draftId}`)[0]?.total);
+    if (pickCount) throw new Error('cannot_replace_players_after_picks');
+    await sql`DELETE FROM draft_queues`;
+    await sql`DELETE FROM draft_players`;
+    return;
+  }
+  if (normalizedAction === 'force_pick' || normalizedAction === 'auto_pick') {
     draft = await activeDraftRow();
     if (!draft) throw new Error('no_draft');
+    if (await getPendingPick(draftId)) throw new Error('pending_pick_exists');
     const overall = int(draft.current_overall, 1);
     const slot = rowsOf<Row>(await sql`SELECT team_id FROM draft_slots WHERE draft_id = ${draftId} AND overall = ${overall} LIMIT 1`)[0];
     if (!slot) throw new Error('no_slot');
-    const ok = await makePickInternal(draftId, String(slot.team_id), String(body.playerId || ''), true);
+    let playerId = String(body.playerId || '');
+    if (!playerId) {
+      const queued = rowsOf<Row>(await sql`
+        SELECT player_id FROM draft_queues WHERE draft_id = ${draftId} AND team_id = ${String(slot.team_id)} ORDER BY rank LIMIT 1
+      `)[0];
+      const fallback = queued || rowsOf<Row>(await sql`
+        SELECT id AS player_id FROM draft_players player
+        WHERE NOT EXISTS (SELECT 1 FROM draft_picks pick WHERE pick.draft_id = ${draftId} AND pick.player_id = player.id)
+        ORDER BY rank, name LIMIT 1
+      `)[0];
+      playerId = fallback ? String(fallback.player_id) : '';
+    }
+    const ok = playerId && await makePickInternal(draftId, String(slot.team_id), playerId, true);
     if (!ok) throw new Error('force_pick_failed');
+    return;
+  }
+  if (normalizedAction === 'repair_state') {
+    const pending = await getPendingPick(draftId);
+    if (!pending && String(draft.pause_reason) === 'pending_pick') {
+      await sql`
+        UPDATE drafts SET status = 'LIVE', pause_reason = NULL,
+          deadline_ts = now() + (GREATEST(1, COALESCE(paused_remaining_seconds, clock_seconds)) * interval '1 second'),
+          paused_remaining_seconds = NULL WHERE id = ${draftId}
+      `;
+    }
+    return;
+  }
+  if (normalizedAction === 'update_branding') {
+    await sql`UPDATE draft_settings SET logo_url = ${DEFAULT_EVENT_LOGO} WHERE id = 1`;
     return;
   }
   throw new Error('unknown_action');
