@@ -1,0 +1,333 @@
+@import "tailwindcss";
+
+/* Design tokens */
+:root {
+  /* brand */
+  --accent: #0b5f98; /* LEAGUE_COLORS.primary */
+  --danger: #be161e;
+  --gold: #bf9944;
+
+  /* radius */
+  --radius-card: 12px;
+  --radius-pill: 9999px;
+
+  /* spacing scale (px) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* motion */
+  --motion-fast: 150ms;
+  --motion: 200ms;
+  --motion-slow: 250ms;
+
+  /* elevation */
+  --shadow-soft: 0 1px 2px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06);
+
+  /* fonts (from next/font variables) */
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  /* type scale (px / line-height px) */
+  --fs-display: 36px;  --lh-display: 44px;
+  --fs-h1: 32px;       --lh-h1: 40px;
+  --fs-h2: 24px;       --lh-h2: 32px;
+  --fs-h3: 20px;       --lh-h3: 28px;
+  --fs-body: 16px;     --lh-body: 26px;
+  --fs-small: 14px;    --lh-small: 24px;
+}
+
+/* Dark theme (default) */
+:root,
+html[data-theme="dark"] {
+  --bg: #0B1020;
+  --surface: #111727;
+  --surface-strong: #182033;
+  --border: #1E2637;
+  --text: #E9EDF5;
+  --muted: #9AA5B1;
+  --focus: var(--accent);
+  --on-brand: #ffffff;
+
+  /* aurora background strength (per-blob alpha + saturation) */
+  --aurora-1: 18%;
+  --aurora-2: 18%;
+  --aurora-3: 10%;
+  --aurora-saturate: 120%;
+
+  /* homepage card surface (translucent over the dark canvas for depth) */
+  --home-surface-bg: color-mix(in srgb, var(--surface) 88%, transparent);
+  --home-surface-border: color-mix(in srgb, var(--border) 82%, transparent);
+  --home-surface-shadow: 0 8px 24px rgba(0,0,0,0.24), 0 0 0 1px rgba(255,255,255,0.02) inset;
+
+  /* Broadcast panel palette (sports-graphics cards: countdowns, recap, trades,
+     transactions). Theme-aware so the cards flip light in light mode. */
+  --panel-card: linear-gradient(180deg, #181D2A 0%, #0D1118 100%);
+  --panel-border: rgba(255,255,255,0.09);
+  --panel-hairline: rgba(255,255,255,0.07);
+  --panel-header-bg: rgba(255,255,255,0.025);
+  --panel-text: #F4F6FB;
+  --panel-muted: rgba(233,237,245,0.58);
+  --panel-faint: rgba(233,237,245,0.40);
+  --panel-shadow: 0 4px 18px rgba(0,0,0,0.30);
+  --panel-inset-top: rgba(255,255,255,0.06);
+  /* Solid panel surfaces (dropdowns, fields) — distinct from the gradient card. */
+  --panel-surface: #131822;
+  --panel-field: #1a2030;
+  /* Inner-cell tints: lighten the panel surface (white overlay on dark). */
+  --panel-tint-soft: rgba(255,255,255,0.03);
+  --panel-tint: rgba(255,255,255,0.04);
+  --panel-tint-medium: rgba(255,255,255,0.06);
+  --panel-tint-strong: rgba(255,255,255,0.08);
+  --panel-tint-stronger: rgba(255,255,255,0.10);
+}
+
+/* Light theme */
+html[data-theme="light"] {
+  --bg: #fcfcfc;
+  --surface: #ffffff;
+  --surface-strong: #F2F4F8;
+  --border: #E6E8F0;
+  --text: #0B1020;
+  --muted: #475467;
+  --focus: var(--accent);
+  --on-brand: #ffffff;
+
+  /* Softer, neutral-tinted card shadow so cards read crisp on white */
+  --shadow-soft: 0 1px 2px rgba(16,24,40,0.06), 0 4px 12px rgba(16,24,40,0.08);
+
+  /* Faint aurora — full-strength red/gold turns muddy over a near-white bg */
+  --aurora-1: 7%;
+  --aurora-2: 7%;
+  --aurora-3: 4%;
+  --aurora-saturate: 100%;
+
+  /* Opaque card surface (no aurora bleed-through) + soft, neutral elevation */
+  --home-surface-bg: var(--surface);
+  --home-surface-border: var(--border);
+  --home-surface-shadow: 0 1px 2px rgba(16,24,40,0.05), 0 6px 16px rgba(16,24,40,0.08);
+
+  /* Broadcast panel palette — light variant. Cards become white with dark
+     text; inner-cell tints darken the surface (black overlay on light). */
+  --panel-card: linear-gradient(180deg, #ffffff 0%, #f6f8fc 100%);
+  --panel-border: rgba(16,24,40,0.10);
+  --panel-hairline: rgba(16,24,40,0.08);
+  --panel-header-bg: rgba(16,24,40,0.025);
+  --panel-text: #0B1020;
+  --panel-muted: rgba(11,16,32,0.64);
+  --panel-faint: rgba(11,16,32,0.46);
+  --panel-shadow: 0 1px 2px rgba(16,24,40,0.05), 0 6px 16px rgba(16,24,40,0.08);
+  --panel-inset-top: rgba(16,24,40,0.04);
+  --panel-surface: #ffffff;
+  --panel-field: #f3f5f9;
+  --panel-tint-soft: rgba(16,24,40,0.025);
+  --panel-tint: rgba(16,24,40,0.035);
+  --panel-tint-medium: rgba(16,24,40,0.05);
+  --panel-tint-strong: rgba(16,24,40,0.07);
+  --panel-tint-stronger: rgba(16,24,40,0.09);
+}
+
+/* Tailwind theme mapping removed to avoid unknown at-rule lints. If needed, configure via Tailwind config. */
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans), system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  position: relative; /* for backdrop pseudo element */
+}
+
+/* Global aurora background overlay */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 600px at 15% 0%, color-mix(in srgb, var(--danger) var(--aurora-1), transparent) 0%, transparent 60%),
+    radial-gradient(800px 520px at 85% 5%, color-mix(in srgb, var(--gold) var(--aurora-2), transparent) 0%, transparent 60%),
+    radial-gradient(1200px 900px at 50% 120%, color-mix(in srgb, var(--danger) var(--aurora-3), transparent) 0%, transparent 70%);
+  filter: saturate(var(--aurora-saturate));
+}
+
+@keyframes homeAuroraDrift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(0, -1.2%, 0) scale(1.02); }
+  100% { transform: translate3d(0, 0.8%, 0) scale(1.01); }
+}
+
+.home-aurora-motion {
+  animation: homeAuroraDrift 26s ease-in-out infinite alternate;
+  transform-origin: 50% 18%;
+  will-change: transform;
+}
+
+/* Homepage-only surface depth tuning */
+.home-page .evw-surface {
+  background-color: var(--home-surface-bg);
+  border-color: var(--home-surface-border);
+  box-shadow: var(--home-surface-shadow);
+}
+
+/* Utilities tailored to tokens */
+.evw-surface {
+  background-color: var(--surface);
+  border-color: var(--border);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+/* Subtle surface tint (for light headers/stripes) */
+.evw-subtle {
+  background-color: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+/* Hover helper for subtle tint */
+.hover-subtle:hover {
+  background-color: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+/* Translucent glass surface (use for navbar) */
+.evw-glass {
+  background-color: color-mix(in srgb, var(--surface) 85%, transparent);
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+/* Accent gradient utility (red -> gold) */
+.accent-gradient {
+  background-image: linear-gradient(90deg, var(--danger) 0%, var(--danger) 49.5%, var(--gold) 50.5%, var(--gold) 100%);
+}
+
+/* Brand gradient utility (red -> gold) */
+.brand-gradient {
+  background-image: linear-gradient(90deg, var(--danger) 0%, var(--danger) 49.5%, var(--gold) 50.5%, var(--gold) 100%);
+}
+
+/* Text color for brand gradient overlays */
+.text-on-brand { color: var(--on-brand); }
+
+/* Solid blue accent stripe (for thin markers) */
+.accent-stripe {
+  background: var(--accent);
+}
+
+/* Accent token utilities (solid blue accents) */
+.text-accent { color: var(--accent); }
+.bg-accent-soft { background-color: color-mix(in srgb, var(--accent) 16%, transparent); }
+.border-accent { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+
+/* Badges */
+.badge { display: inline-flex; align-items: center; font-weight: 600; border-radius: var(--radius-pill); }
+.badge-accent { background-color: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+
+/* Hover lift for cards */
+.hover-lift { transition: transform var(--motion) ease, box-shadow var(--motion) ease, border-color var(--motion) ease; }
+.hover-lift:hover { transform: translateY(-2px); box-shadow: var(--shadow-soft); border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); }
+
+/* Base typography */
+h1, .h1 { font-size: var(--fs-h1); line-height: var(--lh-h1); font-weight: 700; letter-spacing: -0.01em; }
+h2, .h2 { font-size: var(--fs-h2); line-height: var(--lh-h2); font-weight: 650; letter-spacing: -0.005em; }
+h3, .h3 { font-size: var(--fs-h3); line-height: var(--lh-h3); font-weight: 600; }
+small, .text-small { font-size: var(--fs-small); line-height: var(--lh-small); }
+
+/* Links */
+a {
+  color: var(--accent);
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  text-underline-offset: 4px;
+}
+a:hover { text-decoration: underline; }
+
+/* Hairline separators */
+hr { border-color: var(--border); opacity: 0.7; }
+
+.pill {
+  transition: background-color var(--motion) ease-out, color var(--motion) ease-out;
+}
+.pill-active {
+  /* subtle accent wash */
+  background-color: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.pill-hover:hover {
+  background-color: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 500;
+  outline: none;
+  border-radius: var(--radius-pill);
+  transition: background-color var(--motion) ease, color var(--motion) ease, box-shadow var(--motion) ease, filter var(--motion) ease;
+}
+.btn-primary {
+  background-color: var(--danger);
+  background-image: none;
+  color: var(--on-brand);
+  border: 2px solid var(--gold);
+  padding: 0.5rem 0.9rem;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+}
+.btn-primary:hover {
+  background-color: color-mix(in srgb, var(--danger) 88%, white);
+  border-color: color-mix(in srgb, var(--gold) 88%, white);
+}
+.btn-primary:focus { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 40%, transparent); }
+.btn-secondary {
+  background-color: transparent;
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  padding: 0.5rem 0.9rem;
+}
+.btn-secondary:hover { background-color: color-mix(in srgb, var(--accent) 10%, transparent); }
+.btn-secondary:focus { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
+
+/* React Flow theming */
+.react-flow__node .evw-node {
+  transition: box-shadow var(--motion) ease, border-color var(--motion) ease, transform var(--motion) ease;
+}
+.react-flow__node:hover .evw-node {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+.react-flow__node.selected .evw-node {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--focus);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.react-flow__edge-path {
+  transition: stroke var(--motion) ease, stroke-width var(--motion) ease, opacity var(--motion) ease;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: color-mix(in srgb, var(--accent) 35%, var(--muted));
+}
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--accent) !important;
+  stroke-width: 4 !important;
+}
+
+.react-flow__minimap { border-radius: var(--radius-card); }
+.react-flow__controls { border-radius: var(--radius-card); }
+.react-flow__controls button {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.react-flow__controls button:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
+
+/* Draft overlay presentation mode — hides site chrome and removes scrollbars */
+body.draft-overlay-mode { overflow: hidden !important; }
+.react-flow__controls button:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
