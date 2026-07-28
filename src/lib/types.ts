@@ -38,6 +38,46 @@ export type DraftPick = {
   madeAt: string;
 };
 
+export type PendingPick = {
+  id: string;
+  draftId: string;
+  overall: number;
+  teamId: string;
+  teamName: string;
+  playerId: string;
+  playerName: string;
+  playerPosition: string;
+  playerProTeam: string | null;
+  submittedAt: string;
+};
+
+export type TradeAsset = {
+  id: string;
+  fromTeam: string;
+  toTeam: string;
+  assetType: 'player' | 'current_pick' | 'future_pick' | string;
+  playerId: string | null;
+  playerName: string | null;
+  playerPosition: string | null;
+  pickOverall: number | null;
+  pickYear: number | null;
+  pickRound: number | null;
+  pickOriginalTeam: string | null;
+};
+
+export type ModerationTrade = {
+  id: string;
+  draftId: string;
+  status: string;
+  proposedBy: string;
+  teams: string[];
+  acceptedBy: string[];
+  notes: string | null;
+  proposedAt: string;
+  updatedAt: string;
+  assets: TradeAsset[];
+};
+
 export type DraftSummary = {
   id: string;
   name: string;
@@ -46,6 +86,8 @@ export type DraftSummary = {
   clockSeconds: number;
   currentOverall: number;
   deadlineTs: string | null;
+  pauseReason?: string | null;
+  pausedRemainingSeconds?: number | null;
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
@@ -75,6 +117,8 @@ export type DraftState = {
   players: Player[];
   slots: DraftSlot[];
   picks: DraftPick[];
+  pendingPick?: PendingPick | null;
+  pendingTrades?: ModerationTrade[];
   currentTeam: Team | null;
   availablePlayers: Player[];
 };
