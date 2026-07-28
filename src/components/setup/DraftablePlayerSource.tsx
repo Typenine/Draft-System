@@ -3,7 +3,7 @@ import styles from './DraftablePlayerSource.module.css';
 
 const number = new Intl.NumberFormat('en-US');
 
-export function DraftablePlayerSource() {
+export function DraftablePlayerSource({ stepLabel = 'Step 3' }: { stepLabel?: string }) {
   const source = DRAFTABLE_PLAYER_SOURCE;
   const synced = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(source.syncedAt));
 
@@ -11,7 +11,7 @@ export function DraftablePlayerSource() {
     <section className="setup-section">
       <div className="setup-section-heading">
         <div>
-          <span className="eyebrow">Step 3</span>
+          <span className="eyebrow">{stepLabel}</span>
           <h2>Draftable player pool</h2>
           <p>The draft will automatically use every player from the linked spreadsheet’s <strong>Draftable Players</strong> tab. No upload or column mapping is required.</p>
         </div>
