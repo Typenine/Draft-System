@@ -1,0 +1,114 @@
+.commissioner-brand-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.commissioner-event-logo {
+  width: clamp(82px, 8vw, 118px);
+  height: clamp(82px, 8vw, 118px);
+  flex: 0 0 auto;
+  object-fit: contain;
+  filter: drop-shadow(0 14px 24px rgba(0, 0, 0, .4));
+}
+
+.moderation-panel {
+  max-width: 1452px;
+  margin: 0 auto 22px;
+  padding: 20px;
+}
+
+.moderation-empty {
+  margin-top: 12px;
+  padding: 22px;
+  border: 1px dashed var(--line);
+  border-radius: 13px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.moderation-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 14px;
+  margin-top: 15px;
+}
+
+.moderation-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: linear-gradient(145deg, #0c1424, #080d18);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, .22);
+}
+
+.moderation-card h3 {
+  margin: 15px 0 5px;
+  font-size: 1.15rem;
+  line-height: 1.25;
+}
+
+.moderation-card p { margin: 5px 0; }
+
+.moderation-card-heading,
+.moderation-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.moderation-card-heading strong {
+  color: var(--muted);
+  font-size: .76rem;
+  text-transform: uppercase;
+  letter-spacing: .055em;
+}
+
+.moderation-assets {
+  display: grid;
+  gap: 6px;
+  margin: 13px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.moderation-assets li {
+  padding: 8px 10px;
+  border: 1px solid rgba(71, 85, 105, .65);
+  border-radius: 9px;
+  background: rgba(15, 23, 42, .72);
+  color: #dbeafe;
+  font-size: .78rem;
+  line-height: 1.35;
+}
+
+.moderation-actions {
+  align-items: stretch;
+  margin-top: 16px;
+}
+
+.moderation-actions .button {
+  flex: 1;
+  min-height: 42px;
+  white-space: normal;
+}
+
+.status-pill.status-accepted {
+  background: rgba(34, 197, 94, .16);
+  color: #86efac;
+}
+
+.status-pill.status-pending {
+  background: rgba(245, 158, 11, .16);
+  color: #fcd34d;
+}
+
+@media (max-width: 720px) {
+  .commissioner-brand-heading { align-items: flex-start; }
+  .commissioner-event-logo { width: 78px; height: 78px; }
+  .moderation-grid { grid-template-columns: 1fr; }
+  .moderation-actions { flex-direction: column; }
+}
