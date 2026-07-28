@@ -1,0 +1,173 @@
+import { randomUUID } from 'node:crypto';
+import { NextRequest, NextResponse } from 'next/server';
+import { ensureSchema, getSql } from '@/lib/db';
+import { approveTrade, finishTradeAnimation, getDraftState, rejectTrade } from '@/lib/store';
+import { sessionTeam } from '@/lib/draft-compat';
+import { rowsOf, type Row } from '@/lib/store/shared';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+function json(value: unknown, status = 200) { return NextResponse.json(value, { status, headers: { 'Cache-Control': 'no-store' } }); }
+function list(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value === 'string') {
+    try { const parsed = JSON.parse(value) as unknown; return Array.isArray(parsed) ? parsed.map(String) : []; } catch { return []; }
+  }
+  return [];
+}
+function mapAsset(row: Row) {
+  return {
+    id: String(row.id), tradeId: String(row.trade_id), fromTeam: String(row.from_team), toTeam: String(row.to_team), assetType: String(row.asset_type),
+    playerId: row.player_id ? String(row.player_id) : null, playerName: row.player_name ? String(row.player_name) : null,
+    playerPos: row.player_pos ? String(row.player_pos) : null, playerNfl: row.player_nfl ? String(row.player_nfl) : null,
+    pickOverall: row.pick_overall == null ? null : Number(row.pick_overall), pickYear: row.pick_year == null ? null : Number(row.pick_year),
+    pickRound: row.pick_round == null ? null : Number(row.pick_round), pickOriginalTeam: row.pick_original_team ? String(row.pick_original_team) : null,
+  };
+}
+async function mappedTrades(draftId: string, team?: string | null) {
+  const sql = getSql();
+  const rows = rowsOf<Row>(await sql`SELECT * FROM draft_trades WHERE draft_id = ${draftId} ORDER BY proposed_at DESC`);
+  const selected = team ? rows.filter((row) => list(row.teams).includes(team)) : rows;
+  return Promise.all(selected.map(async (row) => ({
+    id: String(row.id), draftId: String(row.draft_id), status: String(row.status), proposedBy: String(row.proposed_by), teams: list(row.teams), acceptedBy: list(row.accepted_by),
+    counterOf: row.counter_of ? String(row.counter_of) : null, notes: row.notes ? String(row.notes) : null,
+    proposedAt: new Date(String(row.proposed_at)).toISOString(), updatedAt: new Date(String(row.updated_at)).toISOString(),
+    assets: rowsOf<Row>(await sql`SELECT * FROM draft_trade_assets WHERE trade_id = ${String(row.id)} ORDER BY id`).map(mapAsset),
+  })));
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    await ensureSchema();
+    const sql = getSql();
+    const action = req.nextUrl.searchParams.get('action') || '';
+    const draftId = req.nextUrl.searchParams.get('draftId') || '';
+    const team = req.nextUrl.searchParams.get('team');
+    if (!draftId) return json({ error: 'draft_required' }, 400);
+    if (action === 'get_team') return json({ trades: await mappedTrades(draftId, team) });
+    if (action === 'list_approved') return json({ trades: (await mappedTrades(draftId)).filter((trade) => trade.status === 'approved') });
+    if (action === 'get_assets') {
+      const state = await getDraftState();
+      const selected = state.teams.find((item) => item.name === team || item.id === team);
+      if (!selected) return json({ rosterPlayers: [], futurePicks: [], currentPicks: [] });
+      const picked = new Set(state.picks.map((pick) => pick.overall));
+      const rosterPlayers = rowsOf<Row>(await sql`
+        SELECT player_id, player_name, player_position, player_pro_team
+        FROM draft_roster_ownership
+        WHERE draft_id = ${draftId} AND owner_team_id = ${selected.id}
+        ORDER BY player_position, player_name
+      `).map((row) => ({
+        playerId: String(row.player_id), playerName: String(row.player_name), playerPos: String(row.player_position),
+        playerNfl: row.player_pro_team ? String(row.player_pro_team) : null,
+      }));
+      const currentPicks = state.slots.filter((slot) => slot.teamId === selected.id && !picked.has(slot.overall)).map((slot) => ({ overall: slot.overall, round: slot.round, team: selected.name }));
+      const futurePicks = rowsOf<Row>(await sql`
+        SELECT pick.id, pick.pick_year, pick.pick_round, original.name AS original_team, owner.name AS owner_team
+        FROM draft_future_picks pick
+        JOIN draft_teams original ON original.id = pick.original_team_id
+        JOIN draft_teams owner ON owner.id = pick.owner_team_id
+        WHERE pick.draft_id = ${draftId} AND pick.owner_team_id = ${selected.id}
+        ORDER BY pick.pick_year, pick.pick_round
+      `).map((row) => ({
+        id: String(row.id), year: Number(row.pick_year), round: Number(row.pick_round),
+        originalTeam: String(row.original_team), ownerTeam: String(row.owner_team),
+      }));
+      return json({ rosterPlayers, futurePicks, currentPicks });
+    }
+    return json({ error: 'unknown_action' }, 400);
+  } catch (error) { return json({ error: error instanceof Error ? error.message : 'trade_load_failed' }, 500); }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    await ensureSchema();
+    const sql = getSql();
+    const body = await req.json() as Record<string, unknown>;
+    const action = String(body.action || '');
+    const draftId = String(body.draftId || '');
+    const identity = await sessionTeam(req, body.team ? String(body.team) : body.proposedBy ? String(body.proposedBy) : null);
+    if (!identity) return json({ error: 'authentication_required' }, 403);
+    if (!draftId) return json({ error: 'draft_required' }, 400);
+
+    if (action === 'propose') {
+      const proposedBy = identity.team?.name || String(body.proposedBy || '');
+      const teams = Array.isArray(body.teams) ? [...new Set((body.teams as unknown[]).map(String))] : [];
+      const assets = Array.isArray(body.assets) ? body.assets as Array<Record<string, unknown>> : [];
+      const state = await getDraftState();
+      const configuredNames = new Set(state.teams.map((team) => team.name));
+      if (!proposedBy || teams.length < 2 || teams.length > 3 || !teams.includes(proposedBy) || teams.some((team) => !configuredNames.has(team)) || !assets.length) {
+        return json({ error: 'invalid_trade' }, 400);
+      }
+      for (const asset of assets) {
+        const fromTeam = String(asset.fromTeam || '');
+        const toTeam = String(asset.toTeam || '');
+        if (!teams.includes(fromTeam) || !teams.includes(toTeam) || fromTeam === toTeam) return json({ error: 'invalid_trade_asset' }, 400);
+      }
+      const id = randomUUID();
+      await sql`
+        INSERT INTO draft_trades (id, draft_id, proposed_by, teams, accepted_by, notes, counter_of)
+        VALUES (${id}, ${draftId}, ${proposedBy}, ${JSON.stringify(teams)}::jsonb, ${JSON.stringify([proposedBy])}::jsonb,
+          ${body.notes ? String(body.notes) : null}, ${body.counterOf ? String(body.counterOf) : null})
+      `;
+      for (const asset of assets) {
+        await sql`
+          INSERT INTO draft_trade_assets
+            (id, trade_id, from_team, to_team, asset_type, player_id, player_name, player_pos, player_nfl, pick_overall, pick_year, pick_round, pick_original_team)
+          VALUES (${randomUUID()}, ${id}, ${String(asset.fromTeam || '')}, ${String(asset.toTeam || '')}, ${String(asset.assetType || '')},
+            ${asset.playerId ? String(asset.playerId) : null}, ${asset.playerName ? String(asset.playerName) : null}, ${asset.playerPos ? String(asset.playerPos) : null},
+            ${asset.playerNfl ? String(asset.playerNfl) : null}, ${asset.pickOverall == null ? null : Number(asset.pickOverall)},
+            ${asset.pickYear == null ? null : Number(asset.pickYear)}, ${asset.pickRound == null ? null : Number(asset.pickRound)},
+            ${asset.pickOriginalTeam ? String(asset.pickOriginalTeam) : null})
+        `;
+      }
+      if (body.counterOf) await sql`UPDATE draft_trades SET status = 'countered', updated_at = now() WHERE id = ${String(body.counterOf)} AND draft_id = ${draftId}`;
+      return json({ ok: true, tradeId: id });
+    }
+
+    if (action === 'clear_trade_animation') {
+      await finishTradeAnimation(draftId);
+      return json({ ok: true });
+    }
+
+    const tradeId = String(body.tradeId || '');
+    const trade = rowsOf<Row>(await sql`SELECT * FROM draft_trades WHERE id = ${tradeId} AND draft_id = ${draftId} LIMIT 1`)[0];
+    if (!trade) return json({ error: 'trade_not_found' }, 404);
+    const actingTeam = identity.team?.name || String(body.team || '');
+    const teams = list(trade.teams);
+    if (identity.sessionRole !== 'admin' && !teams.includes(actingTeam)) return json({ error: 'not_trade_member' }, 403);
+
+    if (action === 'accept') {
+      if (String(trade.status) !== 'pending') return json({ error: 'trade_not_pending' }, 409);
+      const accepted = [...new Set([...list(trade.accepted_by), actingTeam])];
+      const fullyAccepted = teams.every((team) => accepted.includes(team));
+      await sql`
+        UPDATE draft_trades SET accepted_by = ${JSON.stringify(accepted)}::jsonb,
+          status = ${fullyAccepted ? 'accepted' : 'pending'}, animation_pending = false, updated_at = now()
+        WHERE id = ${tradeId}
+      `;
+      return json({ ok: true, accepted: fullyAccepted, awaitingCommissioner: fullyAccepted });
+    }
+    if (action === 'approve') {
+      if (identity.sessionRole !== 'admin') return json({ error: 'commissioner_required' }, 403);
+      await approveTrade(tradeId);
+      return json({ ok: true, approved: true });
+    }
+    if (action === 'admin_reject') {
+      if (identity.sessionRole !== 'admin') return json({ error: 'commissioner_required' }, 403);
+      await rejectTrade(tradeId);
+      return json({ ok: true });
+    }
+    if (action === 'reject') {
+      if (!['pending', 'accepted'].includes(String(trade.status))) return json({ error: 'trade_not_pending' }, 409);
+      await sql`UPDATE draft_trades SET status = 'rejected', animation_pending = false, updated_at = now() WHERE id = ${tradeId}`;
+      return json({ ok: true });
+    }
+    if (action === 'cancel') {
+      if (identity.sessionRole !== 'admin' && String(trade.proposed_by) !== actingTeam) return json({ error: 'not_trade_proposer' }, 403);
+      await sql`UPDATE draft_trades SET status = 'cancelled', animation_pending = false, updated_at = now() WHERE id = ${tradeId}`;
+      return json({ ok: true });
+    }
+    return json({ error: 'unknown_action' }, 400);
+  } catch (error) { return json({ error: error instanceof Error ? error.message : 'trade_action_failed' }, 400); }
+}
