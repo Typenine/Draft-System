@@ -1,19 +1,20 @@
 'use client';
 
 import { FormEvent, useMemo, useState, type CSSProperties } from 'react';
-import { useDraftState } from '@/components/useDraftState';
-import { PlayerImport } from '@/components/setup/PlayerImport';
+import { DraftablePlayerSource } from '@/components/setup/DraftablePlayerSource';
 import { createDefaultTeams, TeamSetupEditor, type EditableTeam } from '@/components/setup/TeamSetupEditor';
-import type { SetupPlayerInput, SetupTeamInput } from '@/lib/types';
+import { useDraftState } from '@/components/useDraftState';
+import { DRAFTABLE_PLAYER_SOURCE } from '@/data/draftable-player-source';
+import type { SetupTeamInput } from '@/lib/types';
 
 const placeholderNames = ['Alpha Wolves', 'Bay City', 'Capital Club', 'Desert Storm'];
-const REQUIRED_PLAYER_COUNT = 12 * 28;
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+const playerCount = new Intl.NumberFormat('en-US').format(DRAFTABLE_PLAYER_SOURCE.playerCount);
 
 function friendlySetupError(value: unknown): string {
   const message = String(value || 'Setup failed.');
   if (message === 'exactly_12_teams_required') return 'Set up exactly 12 teams.';
-  if (message === 'minimum_336_players_required') return 'Import at least 336 valid players before creating the draft.';
+  if (message === 'minimum_336_players_required' || message === 'draftable_player_source_invalid') return 'The Draftable Players sheet source could not be loaded.';
   if (message.includes('_login_code_duplicate')) return 'Every team needs a unique access code.';
   if (message.includes('_incomplete')) return 'Each team needs a name and access code.';
   if (message === 'admin_code_required') return 'Create a commissioner access code.';
@@ -40,7 +41,6 @@ export default function HomePage() {
   const [message, setMessage] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const [teams, setTeams] = useState<EditableTeam[]>(() => createDefaultTeams());
-  const [players, setPlayers] = useState<SetupPlayerInput[]>([]);
   const [setup, setSetup] = useState({
     leagueName: 'Panther Nation',
     adminCode: '',
@@ -67,7 +67,7 @@ export default function HomePage() {
     const validColors = teams.every((team) => HEX_COLOR.test(team.primaryColor.trim()) && HEX_COLOR.test(team.secondaryColor.trim()));
     return { incomplete, uniqueCodes, validColors, ready: teams.length === 12 && incomplete === 0 && uniqueCodes && validColors };
   }, [teams]);
-  const setupReady = Boolean(setup.leagueName.trim() && setup.adminCode.trim() && teamStatus.ready && players.length >= REQUIRED_PLAYER_COUNT);
+  const setupReady = Boolean(setup.leagueName.trim() && setup.adminCode.trim() && teamStatus.ready);
 
   const theme = useMemo(() => ({
     '--league-primary': state.branding?.primaryColor || setup.primaryColor,
@@ -99,10 +99,6 @@ export default function HomePage() {
       else setMessage('Every team color must be a six-digit hex value such as #be161e.');
       return;
     }
-    if (players.length < REQUIRED_PLAYER_COUNT) {
-      setMessage(`Import at least ${REQUIRED_PLAYER_COUNT} valid players. The current pool has ${players.length}.`);
-      return;
-    }
 
     setWorking(true);
     const response = await fetch('/api/setup', {
@@ -112,7 +108,6 @@ export default function HomePage() {
         ...setup,
         rounds: 28,
         teams: setupTeams(teams),
-        players,
         replacePlaceholder: placeholderLeague,
       }),
     });
@@ -159,7 +154,7 @@ export default function HomePage() {
         <section className="setup-intro">
           <span className="eyebrow">League setup</span>
           <h1>{placeholderLeague ? 'Replace the temporary sample league.' : 'Configure your draft room.'}</h1>
-          <p>Set up the league, visually configure all 12 teams, and verify the full IDP player pool before anything is saved.</p>
+          <p>Set up the league and visually configure all 12 teams. The draftable player pool is already loaded from the linked Google Sheet.</p>
           {placeholderLeague && <div className="notice">The four-team sample data is untouched and has no picks, so it can be safely replaced here without the unknown sample commissioner code.</div>}
         </section>
 
@@ -167,7 +162,7 @@ export default function HomePage() {
           <div className="setup-summary">
             <div><small>League size</small><strong>12 teams</strong></div>
             <div><small>Draft length</small><strong>28 rounds</strong></div>
-            <div><small>Total selections</small><strong>336 picks</strong></div>
+            <div><small>Player pool</small><strong>{playerCount}</strong></div>
           </div>
 
           <section className="setup-section">
@@ -189,7 +184,7 @@ export default function HomePage() {
           </section>
 
           <TeamSetupEditor teams={teams} leaguePrimary={setup.primaryColor} leagueSecondary={setup.secondaryColor} onChange={setTeams} />
-          <PlayerImport selectedCount={players.length} requiredCount={REQUIRED_PLAYER_COUNT} onPlayersChange={setPlayers} />
+          <DraftablePlayerSource />
 
           <section className="setup-section setup-final-review">
             <div className="setup-section-heading">
@@ -198,10 +193,10 @@ export default function HomePage() {
             <div className="readiness-grid">
               <div className={setup.leagueName.trim() && setup.adminCode.trim() ? 'ready' : ''}><span>League access</span><strong>{setup.leagueName.trim() && setup.adminCode.trim() ? 'Ready' : 'Needs details'}</strong></div>
               <div className={teamStatus.ready ? 'ready' : ''}><span>Team setup</span><strong>{teamStatus.ready ? '12 teams ready' : `${teamStatus.incomplete || 12} need attention`}</strong></div>
-              <div className={players.length >= REQUIRED_PLAYER_COUNT ? 'ready' : ''}><span>Player pool</span><strong>{players.length >= REQUIRED_PLAYER_COUNT ? `${players.length} players ready` : `${REQUIRED_PLAYER_COUNT - players.length} more needed`}</strong></div>
+              <div className="ready"><span>Player pool</span><strong>{playerCount} sheet players ready</strong></div>
             </div>
             {message && <p className="form-message error">{message}</p>}
-            <button className="button primary setup-submit" disabled={working || !setupReady}>{working ? 'Creating 12-team draft room…' : setupReady ? 'Create league and enter commissioner control' : 'Complete team setup and player import'}</button>
+            <button className="button primary setup-submit" disabled={working || !setupReady}>{working ? 'Creating 12-team draft room…' : setupReady ? 'Create league and enter commissioner control' : 'Complete league and team setup'}</button>
           </section>
         </form>
       </main>
