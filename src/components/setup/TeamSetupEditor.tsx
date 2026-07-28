@@ -3,6 +3,7 @@
 import type { SetupTeamInput } from '@/lib/types';
 
 export type EditableTeam = Required<Pick<SetupTeamInput, 'name' | 'loginCode'>> & {
+  id?: string;
   shortName: string;
   primaryColor: string;
   secondaryColor: string;
@@ -44,6 +45,7 @@ export function createDefaultTeams(): EditableTeam[] {
   return Array.from({ length: 12 }, (_, index) => {
     const palette = PALETTES[index % PALETTES.length];
     return {
+      id: `setup-team-${index + 1}`,
       name: `Team ${index + 1}`,
       shortName: `T${String(index + 1).padStart(2, '0')}`,
       primaryColor: palette[0],
@@ -59,13 +61,19 @@ export function TeamSetupEditor({
   leaguePrimary,
   leagueSecondary,
   onChange,
+  requireAccessCodes = true,
+  stepLabel = 'Step 2',
+  heading = 'Set up the 12 teams',
 }: {
   teams: EditableTeam[];
   leaguePrimary: string;
   leagueSecondary: string;
   onChange: (teams: EditableTeam[]) => void;
+  requireAccessCodes?: boolean;
+  stepLabel?: string;
+  heading?: string;
 }) {
-  const complete = teams.filter((team) => team.name.trim() && team.shortName.trim() && team.loginCode.trim()).length;
+  const complete = teams.filter((team) => team.name.trim() && team.shortName.trim() && (!requireAccessCodes || team.loginCode.trim())).length;
 
   function updateTeam(index: number, patch: Partial<EditableTeam>) {
     onChange(teams.map((team, teamIndex) => teamIndex === index ? { ...team, ...patch } : team));
@@ -75,8 +83,8 @@ export function TeamSetupEditor({
     <section className="setup-section">
       <div className="setup-section-heading">
         <div>
-          <span className="eyebrow">Step 2</span>
-          <h2>Set up the 12 teams</h2>
+          <span className="eyebrow">{stepLabel}</span>
+          <h2>{heading}</h2>
           <p>Each team has its own branding and access code. The preview matches how its colors will appear throughout the draft room.</p>
         </div>
         <div className={`setup-count ${complete === 12 ? 'complete' : ''}`}><strong>{complete}</strong><span>of 12 complete</span></div>
@@ -88,7 +96,7 @@ export function TeamSetupEditor({
           const secondary = safeColor(team.secondaryColor, '#0f172a');
           const defaultShortName = abbreviation(team.name, index);
           return (
-            <article className="team-setup-card" key={index}>
+            <article className="team-setup-card" key={team.id || index}>
               <div className="team-preview" style={{ background: `linear-gradient(135deg, ${primary}, ${secondary})` }}>
                 <div className="team-preview-logo">
                   <span>{team.shortName || defaultShortName}</span>
@@ -117,9 +125,14 @@ export function TeamSetupEditor({
                   <label>Abbreviation
                     <input value={team.shortName} maxLength={4} onChange={(event) => updateTeam(index, { shortName: event.target.value.toUpperCase() })} required />
                   </label>
-                  <label>Team access code
+                  <label>{requireAccessCodes ? 'Team access code' : 'New access code'}
                     <div className="inline-control">
-                      <input value={team.loginCode} onChange={(event) => updateTeam(index, { loginCode: event.target.value })} required />
+                      <input
+                        value={team.loginCode}
+                        onChange={(event) => updateTeam(index, { loginCode: event.target.value })}
+                        placeholder={requireAccessCodes ? undefined : 'Leave blank to keep current'}
+                        required={requireAccessCodes}
+                      />
                       <button type="button" onClick={() => updateTeam(index, { loginCode: generateCode(index) })}>Generate</button>
                     </div>
                   </label>
