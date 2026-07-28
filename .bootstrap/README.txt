@@ -1,1 +1,0 @@
-Bootstrap payload will be assembled on a temporary branch and removed before merge.

@@ -1,0 +1,69 @@
+.broadcast-page { min-height: 100vh; overflow: hidden; display: grid; grid-template-rows: auto 1fr auto; background: radial-gradient(circle at 80% 15%, color-mix(in srgb, var(--primary) 26%, transparent), transparent 36%), #04070d; }
+.broadcast-header { height: 74px; padding: 10px 28px; display: flex; justify-content: space-between; align-items: center; background: linear-gradient(90deg, var(--secondary), #0a1120); border-bottom: 3px solid var(--primary); }
+.broadcast-brand { display: flex; gap: 12px; align-items: center; }
+.broadcast-brand img { width: 48px; height: 48px; object-fit: contain; }
+.broadcast-brand div, .broadcast-round { display: grid; }
+.broadcast-round { text-align: right; font-size: 1.05rem; font-weight: 950; }
+.pick-animation { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; gap: 35px; padding: 60px; background: radial-gradient(circle at center, color-mix(in srgb, var(--team-primary) 45%, black), #02040a 65%); animation: pickScene 7.2s both; pointer-events: none; }
+.pick-animation .team-mark { width: 150px; height: 150px; font-size: 1.9rem; animation: markIn 7.2s both; }
+.pick-animation > div:last-child { max-width: 900px; animation: copyIn 7.2s both; }
+.pick-animation span { color: #f8fafc; font-size: 1rem; font-weight: 950; letter-spacing: .22em; text-transform: uppercase; }
+.pick-animation h1 { font-size: clamp(4rem, 10vw, 9rem); margin: 8px 0 0; letter-spacing: -.07em; }
+.pick-animation p { font-size: 2rem; margin-bottom: 13px; color: #dbeafe; }
+.pick-sweep { position: absolute; inset: -40%; background: linear-gradient(100deg, transparent 35%, rgba(255,255,255,.15), transparent 65%); transform: translateX(-60%); animation: sweep 2s .4s ease-out both; }
+@keyframes pickScene { 0% { opacity: 0 } 7%, 82% { opacity: 1 } 100% { opacity: 0; visibility: hidden } }
+@keyframes markIn { 0% { opacity: 0; transform: scale(.3) rotate(-15deg) } 12%, 80% { opacity: 1; transform: scale(1) rotate(0) } 100% { opacity: 0; transform: scale(.9) } }
+@keyframes copyIn { 0%, 8% { opacity: 0; transform: translateX(70px) } 18%, 80% { opacity: 1; transform: translateX(0) } 100% { opacity: 0; transform: translateX(-40px) } }
+@keyframes sweep { to { transform: translateX(60%) } }
+.broadcast-main { min-height: 0; display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 15px; padding: 15px; }
+.on-clock-broadcast { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; border: 1px solid #26344d; border-radius: 16px; background: linear-gradient(180deg, #111b2d, #080e19); }
+.on-clock-broadcast .team-mark { margin: 20px 0 13px; }
+.on-clock-broadcast h2 { font-size: 2rem; }
+.on-clock-broadcast .clock { margin-top: 10px; font-size: 4rem; }
+.broadcast-board { min-width: 0; overflow: hidden; padding: 12px; background: rgba(10,17,32,.75); border: 1px solid #26344d; border-radius: 16px; }
+.broadcast-board .draft-board { height: 100%; }
+.broadcast-board .round-column { min-width: 190px; }
+.broadcast-ticker { height: 48px; display: grid; grid-template-columns: 90px 1fr; align-items: center; background: #e5e7eb; color: #0f172a; overflow: hidden; }
+.broadcast-ticker > span { height: 100%; display: grid; place-items: center; background: var(--primary); color: white; font-size: .72rem; font-weight: 1000; }
+.broadcast-ticker > div { display: flex; gap: 35px; white-space: nowrap; padding: 0 22px; animation: ticker 32s linear infinite; }
+.broadcast-ticker b { font-size: .78rem; }
+.broadcast-ticker small { color: #475569; }
+@keyframes ticker { from { transform: translateX(0) } to { transform: translateX(-45%) } }
+.broadcast-error { position: fixed; right: 10px; bottom: 58px; padding: 9px; background: #7f1d1d; border-radius: 7px; }
+.broadcast-loading { min-height: 100vh; display: grid; place-content: center; gap: 10px; text-align: center; }
+
+@media (max-width: 1050px) {
+  .login-page { grid-template-columns: 1fr; align-content: center; }
+  .login-hero h1 { font-size: clamp(3rem, 11vw, 6rem); }
+  .admin-grid { grid-template-columns: 1fr; }
+  .slot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .room-grid { grid-template-columns: 1fr; }
+  .archive-layout { grid-template-columns: 1fr; }
+  .broadcast-main { grid-template-columns: 235px minmax(0, 1fr); }
+}
+
+@media (max-width: 720px) {
+  .form-grid.three { grid-template-columns: 1fr; }
+  .login-page { padding: 28px 18px; }
+  .app-header { align-items: flex-start; }
+  .app-header nav { gap: 10px; font-size: .72rem; flex-wrap: wrap; justify-content: flex-end; }
+  .brand-link small { display: none; }
+  .page-heading { align-items: flex-start; }
+  .status-cluster { flex-direction: column; align-items: flex-end; }
+  .team-room-hero { margin: 15px; padding: 18px; flex-wrap: wrap; }
+  .team-clock { width: 100%; margin: 0; text-align: left; }
+  .room-grid { padding: 0 15px 18px; }
+  .player-row { grid-template-columns: 32px 42px 1fr; }
+  .queue-button { grid-column: 3; width: fit-content; }
+  .player-filters { grid-template-columns: 1fr 100px; }
+  .slot-grid { grid-template-columns: 1fr; }
+  .section-panel { margin-left: 15px; margin-right: 15px; }
+  .broadcast-header { height: 62px; padding: 8px 12px; }
+  .broadcast-main { grid-template-columns: 1fr; overflow: auto; }
+  .on-clock-broadcast { min-height: 260px; }
+  .broadcast-board { min-height: 500px; }
+  .pick-animation { flex-direction: column; gap: 16px; padding: 25px; text-align: center; }
+  .pick-animation .team-mark { width: 100px; height: 100px; }
+  .pick-animation h1 { font-size: 3.3rem; }
+  .pick-animation p { font-size: 1.25rem; }
+}

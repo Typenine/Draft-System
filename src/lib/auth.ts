@@ -1,63 +1,52 @@
-import { createHash, createHmac, timingSafeEqual } from 'crypto';
-import type { NextRequest } from 'next/server';
+import { createHmac, scryptSync, timingSafeEqual } from 'crypto';
 import type { Session } from './types';
 
-export const SESSION_COOKIE = 'draft_session';
+export const SESSION_COOKIE = 'draft_system_session';
 
-function authSecret(): string {
-  return process.env.AUTH_SECRET || process.env.DATABASE_URL || 'draft-system-local-development';
+function secret(): string {
+  return process.env.SESSION_SECRET || process.env.DATABASE_URL || 'draft-system-local-development';
 }
 
-export function hashCode(value: string): string {
-  return createHash('sha256').update(value.trim()).digest('hex');
+export function hashCode(code: string): string {
+  return scryptSync(code.trim(), 'draft-system-code-v1', 32).toString('hex');
 }
 
-export function safeEqualHash(actualHash: string, plainValue: string): boolean {
-  const expected = Buffer.from(actualHash, 'hex');
-  const actual = Buffer.from(hashCode(plainValue), 'hex');
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
-}
-
-export function signSession(session: Session): string {
-  const payload = Buffer.from(JSON.stringify(session)).toString('base64url');
-  const signature = createHmac('sha256', authSecret()).update(payload).digest('base64url');
-  return `${payload}.${signature}`;
-}
-
-export function verifySession(token: string | undefined | null): Session | null {
-  if (!token) return null;
-  const [payload, signature] = token.split('.');
-  if (!payload || !signature) return null;
-  const expected = createHmac('sha256', authSecret()).update(payload).digest('base64url');
-  const expectedBytes = Buffer.from(expected);
-  const actualBytes = Buffer.from(signature);
-  if (expectedBytes.length !== actualBytes.length || !timingSafeEqual(expectedBytes, actualBytes)) return null;
+export function safeEqualHash(storedHash: string, candidate: string): boolean {
   try {
-    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Session;
-    if (!parsed?.role || !parsed.exp || parsed.exp < Date.now()) return null;
-    if (parsed.role === 'team' && !parsed.teamId) return null;
-    return parsed;
+    const left = Buffer.from(storedHash, 'hex');
+    const right = Buffer.from(hashCode(candidate), 'hex');
+    return left.length === right.length && timingSafeEqual(left, right);
+  } catch {
+    return false;
+  }
+}
+
+function signature(payload: string): string {
+  return createHmac('sha256', secret()).update(payload).digest('base64url');
+}
+
+type SessionInput = { role: 'admin' } | { role: 'team'; teamId: string };
+
+export function createSessionToken(session: SessionInput, hours = 24 * 14): string {
+  const payload = Buffer.from(JSON.stringify({ ...session, exp: Date.now() + hours * 60 * 60 * 1000 })).toString('base64url');
+  return `${payload}.${signature(payload)}`;
+}
+
+export function readSessionToken(token: string | undefined): Session | null {
+  if (!token) return null;
+  const [payload, suppliedSignature] = token.split('.');
+  if (!payload || !suppliedSignature) return null;
+  const expected = signature(payload);
+  const left = Buffer.from(expected);
+  const right = Buffer.from(suppliedSignature);
+  if (left.length !== right.length || !timingSafeEqual(left, right)) return null;
+  try {
+    const session = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Session;
+    if (!session.exp || session.exp < Date.now()) return null;
+    if (session.role === 'admin') return session;
+    if (session.role === 'team' && session.teamId) return session;
+    return null;
   } catch {
     return null;
   }
 }
-
-export function sessionFromRequest(req: NextRequest): Session | null {
-  return verifySession(req.cookies.get(SESSION_COOKIE)?.value);
-}
-
-export function makeAdminSession(): Session {
-  return { role: 'admin', exp: Date.now() + 1000 * 60 * 60 * 24 * 14 };
-}
-
-export function makeTeamSession(teamId: string): Session {
-  return { role: 'team', teamId, exp: Date.now() + 1000 * 60 * 60 * 24 * 14 };
-}
-
-export const sessionCookieOptions = {
-  httpOnly: true,
-  sameSite: 'lax' as const,
-  secure: process.env.NODE_ENV === 'production',
-  path: '/',
-  maxAge: 60 * 60 * 24 * 14,
-};

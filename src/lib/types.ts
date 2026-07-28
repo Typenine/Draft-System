@@ -37,21 +37,31 @@ export type DraftPick = {
   madeAt: string;
 };
 
+export type DraftSummary = {
+  id: string;
+  name: string;
+  status: DraftStatus;
+  rounds: number;
+  clockSeconds: number;
+  currentOverall: number;
+  deadlineTs: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+};
+
+export type Branding = {
+  primaryColor: string;
+  secondaryColor: string;
+  logoUrl: string | null;
+};
+
 export type DraftState = {
   configured: boolean;
+  databaseConfigured?: boolean;
   leagueName?: string;
-  draft: null | {
-    id: string;
-    name: string;
-    status: DraftStatus;
-    rounds: number;
-    clockSeconds: number;
-    currentOverall: number;
-    deadlineTs: string | null;
-    createdAt: string;
-    startedAt: string | null;
-    completedAt: string | null;
-  };
+  branding?: Branding;
+  draft: DraftSummary | null;
   teams: Team[];
   players: Player[];
   slots: DraftSlot[];
@@ -80,4 +90,9 @@ export type SetupPlayerInput = {
   proTeam?: string | null;
   college?: string | null;
   rank?: number;
+};
+
+export type ArchiveDraft = DraftSummary & {
+  picks: DraftPick[];
+  slots: DraftSlot[];
 };

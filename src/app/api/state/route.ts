@@ -21,12 +21,9 @@ export async function GET() {
     }, { status: 503 });
   }
   try {
-    return NextResponse.json(await getDraftState(), {
-      headers: { 'Cache-Control': 'no-store' },
-    });
+    return NextResponse.json(await getDraftState(), { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'state_load_failed';
-    const status = error instanceof DatabaseNotConfiguredError ? 503 : 500;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: message }, { status: error instanceof DatabaseNotConfiguredError ? 503 : 500 });
   }
 }
