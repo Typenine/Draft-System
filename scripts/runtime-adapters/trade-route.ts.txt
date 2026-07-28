@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { ensureSchema, getSql } from '@/lib/db';
-import { approveTrade, finishTradeAnimation, getDraftState, rejectTrade } from '@/lib/store';
+import { getDraftState } from '@/lib/store';
+import { approveTrade, finishTradeAnimation, rejectTrade } from '@/lib/store/moderation';
 import { sessionTeam } from '@/lib/draft-compat';
 import { rowsOf, type Row } from '@/lib/store/shared';
 
