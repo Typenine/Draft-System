@@ -142,7 +142,7 @@ export function DraftOrderEditor({
           const roundSlots = slotOrder.slice(start, start + teams.length);
           const roundOverrides = roundSlots.filter((teamId, index) => teamId !== generated[start + index]).length;
           return (
-            <details key={round} open={round <= 2}>
+            <details key={round} defaultOpen={round <= 2}>
               <summary><span>Round {round}</span><small>{roundOverrides ? `${roundOverrides} customized` : format === 'snake' && round % 2 === 0 ? 'Snake reverse' : 'Base order'}</small></summary>
               <div className="round-order-actions"><button type="button" onClick={() => resetRound(round)}>Reset round to {format}</button></div>
               <div className="round-slot-grid">
