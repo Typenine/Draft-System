@@ -1,6 +1,17 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+const runtimeTemplates = [
+  ['scripts/runtime-adapters/draft-route.ts.txt', 'src/app/api/draft/route.ts'],
+  ['scripts/runtime-adapters/trade-route.ts.txt', 'src/app/api/draft/trade/route.ts'],
+  ['scripts/runtime-adapters/draft-compat.ts.txt', 'src/lib/draft-compat.ts'],
+];
+
+for (const [templatePath, outputPath] of runtimeTemplates) {
+  const template = await readFile(resolve(process.cwd(), templatePath), 'utf8');
+  await writeFile(resolve(process.cwd(), outputPath), template, 'utf8');
+}
+
 const teamRoomPath = resolve(process.cwd(), 'src/app/draft/room/team/page.tsx');
 let teamRoom = await readFile(teamRoomPath, 'utf8');
 teamRoom = teamRoom.replace(
@@ -14,3 +25,16 @@ if (!teamRoom.includes('allTeams={Array.from(new Set((draft?.allSlots || [])')) 
   throw new Error('[standalone-adapter] Dynamic trade-center team list was not applied.');
 }
 await writeFile(teamRoomPath, teamRoom, 'utf8');
+
+const draftRoute = await readFile(resolve(process.cwd(), 'src/app/api/draft/route.ts'), 'utf8');
+const tradeRoute = await readFile(resolve(process.cwd(), 'src/app/api/draft/trade/route.ts'), 'utf8');
+const compat = await readFile(resolve(process.cwd(), 'src/lib/draft-compat.ts'), 'utf8');
+if (!draftRoute.includes('pendingPickView') || !draftRoute.includes("runAdminAction('finish_pick_animation'")) {
+  throw new Error('[standalone-adapter] Moderated pick runtime was not materialized.');
+}
+if (!tradeRoute.includes("status = ${fullyAccepted ? 'accepted' : 'pending'}") || !tradeRoute.includes("action === 'approve'")) {
+  throw new Error('[standalone-adapter] Commissioner-approved trade runtime was not materialized.');
+}
+if (!compat.includes('resumeAfterAnimation: Boolean(trade.resume_after_animation)') || !compat.includes('eventLogoUrl(state.branding?.logoUrl)')) {
+  throw new Error('[standalone-adapter] Runtime animation and event-branding compatibility was not materialized.');
+}
