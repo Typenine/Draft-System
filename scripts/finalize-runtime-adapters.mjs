@@ -4,6 +4,9 @@ import { resolve } from 'node:path';
 const runtimeTemplates = [
   ['scripts/runtime-adapters/draft-route.ts.txt', 'src/app/api/draft/route.ts'],
   ['scripts/runtime-adapters/trade-route.ts.txt', 'src/app/api/draft/trade/route.ts'],
+  ['scripts/runtime-adapters/team-roster-route.ts.txt', 'src/app/api/draft/team-roster/route.ts'],
+  ['scripts/runtime-adapters/player-videos-route.ts.txt', 'src/app/api/draft/player-videos/route.ts'],
+  ['scripts/runtime-adapters/player-image-route.ts.txt', 'src/app/api/draft/player-image/route.ts'],
   ['scripts/runtime-adapters/draft-compat.ts.txt', 'src/lib/draft-compat.ts'],
 ];
 
@@ -28,12 +31,21 @@ await writeFile(teamRoomPath, teamRoom, 'utf8');
 
 const draftRoute = await readFile(resolve(process.cwd(), 'src/app/api/draft/route.ts'), 'utf8');
 const tradeRoute = await readFile(resolve(process.cwd(), 'src/app/api/draft/trade/route.ts'), 'utf8');
+const rosterRoute = await readFile(resolve(process.cwd(), 'src/app/api/draft/team-roster/route.ts'), 'utf8');
+const mediaRoute = await readFile(resolve(process.cwd(), 'src/app/api/draft/player-videos/route.ts'), 'utf8');
+const imageRoute = await readFile(resolve(process.cwd(), 'src/app/api/draft/player-image/route.ts'), 'utf8');
 const compat = await readFile(resolve(process.cwd(), 'src/lib/draft-compat.ts'), 'utf8');
 if (!draftRoute.includes('pendingPickView') || !draftRoute.includes("runAdminAction('finish_pick_animation'")) {
   throw new Error('[standalone-adapter] Moderated pick runtime was not materialized.');
 }
 if (!tradeRoute.includes("status = ${fullyAccepted ? 'accepted' : 'pending'}") || !tradeRoute.includes("action === 'approve'")) {
   throw new Error('[standalone-adapter] Commissioner-approved trade runtime was not materialized.');
+}
+if (!rosterRoute.includes('FROM draft_roster_ownership') || rosterRoute.includes('state.picks.filter')) {
+  throw new Error('[standalone-adapter] Ownership-aware team roster runtime was not materialized.');
+}
+if (!mediaRoute.includes('draft_player_media') || !mediaRoute.includes('videoUrl') || !imageRoute.includes('NextResponse.redirect')) {
+  throw new Error('[standalone-adapter] Player media runtime was not materialized.');
 }
 if (!compat.includes('resumeAfterAnimation: Boolean(trade.resume_after_animation)') || !compat.includes('eventLogoUrl(state.branding?.logoUrl)')) {
   throw new Error('[standalone-adapter] Runtime animation and event-branding compatibility was not materialized.');
