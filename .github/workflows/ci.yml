@@ -17,5 +17,6 @@ jobs:
         with:
           node-version: 20
       - run: npm install --no-audit --no-fund
+      - run: node scripts/inspect-materialized-overlay.mjs
       - run: npm run typecheck
       - run: npm run build
