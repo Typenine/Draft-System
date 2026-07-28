@@ -132,22 +132,6 @@ settingsPage = replaceRequired(
 );
 await writeFile(settingsPath, settingsPage, "utf8");
 
-// Advance the broadcast board in four-round windows through all 28 rounds.
-const overlayPath = resolve(process.cwd(), "src/components/draft-overlay/DraftOverlayLive.tsx");
-let overlay = await readFile(overlayPath, "utf8");
-overlay = replaceRequired(
-  overlay,
-  "  const pickInRound = (currentPickIndex % picksPerRound) + 1;",
-  "  const pickInRound = (currentPickIndex % picksPerRound) + 1;\n  const totalRounds = Math.max(1, draft?.rounds || 28);\n  const activeRoundForBoard = Math.min(totalRounds, Math.max(1, roundNumber));\n  const visibleRoundStart = Math.floor((activeRoundForBoard - 1) / 4) * 4 + 1;\n  const visibleRounds = Array.from({ length: Math.min(4, totalRounds - visibleRoundStart + 1) }, (_, index) => visibleRoundStart + index);",
-  "overlay visible-round calculation",
-);
-overlay = replaceRequired(overlay, "{[1, 2, 3, 4].map(r => (", "{visibleRounds.map(r => (", "overlay round headers");
-overlay = replaceRequired(overlay, "{Array.from({ length: 12 }, (_, pickIdx) => (", "{Array.from({ length: picksPerRound }, (_, pickIdx) => (", "overlay pick rows");
-overlay = replaceRequired(overlay, "currentPickIndex % 12 === pickIdx", "currentPickIndex % picksPerRound === pickIdx", "overlay active row");
-overlay = replaceRequired(overlay, "{[0, 1, 2, 3].map(roundIdx => {", "{visibleRounds.map(visibleRound => {", "overlay round cells");
-overlay = replaceRequired(overlay, "const gridIdx = roundIdx * 12 + pickIdx;", "const gridIdx = (visibleRound - 1) * picksPerRound + pickIdx;", "overlay global grid index");
-await writeFile(overlayPath, overlay, "utf8");
-
 // Let a signed-in commissioner open and exercise the real team-owner room.
 const teamRoomPath = resolve(process.cwd(), "src/app/draft/room/team/page.tsx");
 let teamRoom = await readFile(teamRoomPath, "utf8");
@@ -210,7 +194,7 @@ const teamSetup = await readFile(resolve(process.cwd(), "src/components/setup/Te
 const playerSource = await readFile(resolve(process.cwd(), "src/components/setup/DraftablePlayerSource.tsx"), "utf8");
 const playerLoader = await readFile(resolve(process.cwd(), "src/lib/draftable-player-source.ts"), "utf8");
 const clockDuration = await readFile(resolve(process.cwd(), "src/components/setup/ClockDurationInput.tsx"), "utf8");
-overlay = await readFile(overlayPath, "utf8");
+const overlay = await readFile(resolve(process.cwd(), "src/components/draft-overlay/DraftOverlayLive.tsx"), "utf8");
 teamRoom = await readFile(teamRoomPath, "utf8");
 
 if (!homepage.includes("Replace the temporary sample league") || !homepage.includes("DraftOrderEditor") || !homepage.includes("Commissioner sign in") || homepage.includes("PlayerImport")) {
@@ -222,7 +206,7 @@ if (!homepage.includes(DEFAULT_EVENT_LOGO) || !homepage.includes("setup-event-lo
 if (!homepage.includes("ClockDurationInput") || !settingsPage.includes("ClockDurationInput") || !commissionerPage.includes("Save clock") || !clockDuration.includes("Minutes")) {
   throw new Error("[standalone-adapter] Minutes-and-seconds clock controls were not preserved.");
 }
-if (!overlay.includes("visibleRoundStart") || !overlay.includes("visibleRounds.map(visibleRound") || overlay.includes("{[1, 2, 3, 4].map")) {
+if (!overlay.includes("boardRoundStart") || !overlay.includes("visibleBoardRounds") || !overlay.includes("visibleBoardRounds.map(roundIdx") || !overlay.includes("roundIdx * picksPerRound + pickIdx")) {
   throw new Error("[standalone-adapter] The 28-round moving broadcast window was not preserved.");
 }
 if (!commissionerPage.includes("Open team-view tester") || !teamRoom.includes("Admin mode — view as team") || !teamRoom.includes("Array.from(new Set((draft?.allSlots || [])")) {
