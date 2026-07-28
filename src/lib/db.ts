@@ -33,9 +33,13 @@ export async function ensureSchema(): Promise<void> {
           logo_url text,
           rounds integer NOT NULL DEFAULT 28,
           clock_seconds integer NOT NULL DEFAULT 120,
+          draft_format text NOT NULL DEFAULT 'linear',
+          base_order jsonb NOT NULL DEFAULT '[]'::jsonb,
           updated_at timestamptz NOT NULL DEFAULT now()
         )
       `;
+      await sql`ALTER TABLE draft_settings ADD COLUMN IF NOT EXISTS draft_format text NOT NULL DEFAULT 'linear'`;
+      await sql`ALTER TABLE draft_settings ADD COLUMN IF NOT EXISTS base_order jsonb NOT NULL DEFAULT '[]'::jsonb`;
       await sql`
         CREATE TABLE IF NOT EXISTS draft_teams (
           id text PRIMARY KEY,
