@@ -1,7 +1,7 @@
 import { ensureSchema, getSql } from '../db';
 import { hashCode, safeEqualHash } from '../auth';
-import type { SetupPlayerInput, SetupTeamInput, Team } from '../types';
-import { createDraft } from './draft';
+import type { DraftFormat, SetupPlayerInput, SetupTeamInput, Team } from '../types';
+import { createDraft, generateSlotTeamIds, normalizeDraftFormat } from './draft';
 import { int, mapTeam, normalizePlayers, rowsOf, slug, type Row } from './shared';
 
 export const REQUIRED_TEAM_COUNT = 12;
@@ -14,6 +14,14 @@ const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 function safeColor(value: string | undefined, fallback: string): string {
   const normalized = value?.trim();
   return normalized && HEX_COLOR.test(normalized) ? normalized : fallback;
+}
+
+function validIndexOrder(value: unknown, expectedLength: number, requireUnique: boolean): number[] | null {
+  if (!Array.isArray(value) || value.length !== expectedLength) return null;
+  const order = value.map(Number);
+  if (order.some((index) => !Number.isInteger(index) || index < 0 || index >= REQUIRED_TEAM_COUNT)) return null;
+  if (requireUnique && new Set(order).size !== REQUIRED_TEAM_COUNT) return null;
+  return order;
 }
 
 export async function isLeagueConfigured(): Promise<boolean> {
@@ -54,6 +62,9 @@ export async function setupLeague(input: {
   logoUrl?: string | null;
   rounds: number;
   clockSeconds: number;
+  draftFormat: DraftFormat;
+  baseOrder: number[];
+  draftOrder: number[];
   teams: SetupTeamInput[];
   players: SetupPlayerInput[];
 }): Promise<string> {
@@ -86,15 +97,23 @@ export async function setupLeague(input: {
   });
   const players = normalizePlayers(input.players);
   if (players.length < REQUIRED_PLAYER_COUNT) throw new Error(`minimum_${REQUIRED_PLAYER_COUNT}_players_required`);
+
+  const draftFormat = normalizeDraftFormat(input.draftFormat);
+  const baseIndexes = validIndexOrder(input.baseOrder, REQUIRED_TEAM_COUNT, true);
+  if (!baseIndexes) throw new Error('invalid_base_order');
+  const defaultDraftOrder = generateSlotTeamIds(baseIndexes.map((index) => teams[index].id), REQUIRED_ROUNDS, draftFormat);
+  const slotIndexes = validIndexOrder(input.draftOrder, REQUIRED_TEAM_COUNT * REQUIRED_ROUNDS, false);
+  const baseOrder = baseIndexes.map((index) => teams[index].id);
+  const slotTeamIds = slotIndexes ? slotIndexes.map((index) => teams[index].id) : defaultDraftOrder;
   const sql = getSql();
 
   await sql`
     INSERT INTO draft_settings
-      (id, league_name, admin_code_hash, primary_color, secondary_color, logo_url, rounds, clock_seconds)
+      (id, league_name, admin_code_hash, primary_color, secondary_color, logo_url, rounds, clock_seconds, draft_format, base_order)
     VALUES
       (1, ${input.leagueName.trim() || 'Draft League'}, ${hashCode(input.adminCode)},
        ${safeColor(input.primaryColor, '#2563eb')}, ${safeColor(input.secondaryColor, '#0f172a')}, ${input.logoUrl || null},
-       ${REQUIRED_ROUNDS}, ${Math.max(10, int(input.clockSeconds, 120))})
+       ${REQUIRED_ROUNDS}, ${Math.max(10, int(input.clockSeconds, 120))}, ${draftFormat}, ${JSON.stringify(baseOrder)}::jsonb)
   `;
   await sql`
     INSERT INTO draft_teams
@@ -110,7 +129,7 @@ export async function setupLeague(input: {
     FROM jsonb_to_recordset(${JSON.stringify(players)}::jsonb)
       AS player(id text, name text, position text, pro_team text, college text, rank integer)
   `;
-  return createDraft(`Draft ${new Date().getFullYear()}`);
+  return createDraft(`Draft ${new Date().getFullYear()}`, { draftFormat, baseOrder, slotTeamIds });
 }
 
 export async function authenticateAdmin(code: string): Promise<boolean> {
