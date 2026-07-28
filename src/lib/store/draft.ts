@@ -1,29 +1,78 @@
 import { randomUUID } from 'crypto';
 import { ensureSchema, getSql } from '../db';
-import type { ArchiveDraft, DraftState } from '../types';
+import type { ArchiveDraft, DraftFormat, DraftState } from '../types';
 import { activeDraftRow, int, loadDraftPieces, mapDraft, mapPlayer, mapTeam, rowsOf, type Row } from './shared';
 
-export async function createDraft(name: string): Promise<string> {
+function parsedStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return Array.isArray(parsed) ? parsed.map(String) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+export function normalizeDraftFormat(value: unknown): DraftFormat {
+  return value === 'snake' ? 'snake' : 'linear';
+}
+
+export function normalizeBaseOrder(order: unknown, validTeamIds: string[]): string[] {
+  const proposed = parsedStringArray(order);
+  const valid = new Set(validTeamIds);
+  if (proposed.length === validTeamIds.length && new Set(proposed).size === validTeamIds.length && proposed.every((teamId) => valid.has(teamId))) {
+    return proposed;
+  }
+  return [...validTeamIds];
+}
+
+export function generateSlotTeamIds(baseOrder: string[], rounds: number, format: DraftFormat): string[] {
+  const slots: string[] = [];
+  for (let round = 1; round <= rounds; round += 1) {
+    const roundOrder = format === 'snake' && round % 2 === 0 ? [...baseOrder].reverse() : baseOrder;
+    slots.push(...roundOrder);
+  }
+  return slots;
+}
+
+function normalizeSlotOrder(order: unknown, generated: string[], validTeamIds: string[]): string[] {
+  const proposed = parsedStringArray(order);
+  const valid = new Set(validTeamIds);
+  if (proposed.length === generated.length && proposed.every((teamId) => valid.has(teamId))) return proposed;
+  return generated;
+}
+
+export async function createDraft(name: string, options: {
+  draftFormat?: DraftFormat;
+  baseOrder?: string[];
+  slotTeamIds?: string[];
+} = {}): Promise<string> {
   await ensureSchema();
   const sql = getSql();
-  const settings = rowsOf<Row>(await sql`SELECT rounds, clock_seconds FROM draft_settings WHERE id = 1 LIMIT 1`)[0];
+  const settings = rowsOf<Row>(await sql`SELECT rounds, clock_seconds, draft_format, base_order FROM draft_settings WHERE id = 1 LIMIT 1`)[0];
   const teams = rowsOf<Row>(await sql`SELECT id FROM draft_teams ORDER BY sort_order`);
   if (!settings || teams.length < 2) throw new Error('league_not_configured');
 
   const draftId = randomUUID();
-  const rounds = int(settings.rounds, 4);
+  const rounds = int(settings.rounds, 28);
   const clockSeconds = int(settings.clock_seconds, 120);
+  const teamIds = teams.map((team) => String(team.id));
+  const draftFormat = normalizeDraftFormat(options.draftFormat || settings.draft_format);
+  const baseOrder = normalizeBaseOrder(options.baseOrder || settings.base_order, teamIds);
+  const generated = generateSlotTeamIds(baseOrder, rounds, draftFormat);
+  const slotTeamIds = normalizeSlotOrder(options.slotTeamIds, generated, teamIds);
+
   await sql`INSERT INTO drafts (id, name, rounds, clock_seconds) VALUES (${draftId}, ${name.trim() || 'Draft'}, ${rounds}, ${clockSeconds})`;
 
-  const slots: Array<{ overall: number; round: number; pick_in_round: number; team_id: string }> = [];
-  for (let round = 1; round <= rounds; round += 1) {
-    teams.forEach((team, index) => slots.push({
-      overall: (round - 1) * teams.length + index + 1,
-      round,
-      pick_in_round: index + 1,
-      team_id: String(team.id),
-    }));
-  }
+  const slots = slotTeamIds.map((teamId, index) => ({
+    overall: index + 1,
+    round: Math.floor(index / teamIds.length) + 1,
+    pick_in_round: (index % teamIds.length) + 1,
+    team_id: teamId,
+  }));
   await sql`
     INSERT INTO draft_slots (draft_id, overall, round, pick_in_round, team_id)
     SELECT ${draftId}, overall, round, pick_in_round, team_id
@@ -120,6 +169,9 @@ export async function getDraftState(): Promise<DraftState> {
   }
   const teams = rowsOf<Row>(await sql`SELECT * FROM draft_teams ORDER BY sort_order`).map(mapTeam);
   const players = rowsOf<Row>(await sql`SELECT * FROM draft_players ORDER BY rank, name`).map(mapPlayer);
+  const teamIds = teams.map((team) => team.id);
+  const draftFormat = normalizeDraftFormat(settings.draft_format);
+  const baseOrder = normalizeBaseOrder(settings.base_order, teamIds);
   const draftRow = await activeDraftRow();
   const base = {
     configured: true,
@@ -129,6 +181,12 @@ export async function getDraftState(): Promise<DraftState> {
       primaryColor: String(settings.primary_color),
       secondaryColor: String(settings.secondary_color),
       logoUrl: settings.logo_url ? String(settings.logo_url) : null,
+    },
+    settings: {
+      rounds: int(settings.rounds, 28),
+      clockSeconds: int(settings.clock_seconds, 120),
+      draftFormat,
+      baseOrder,
     },
     teams,
     players,
