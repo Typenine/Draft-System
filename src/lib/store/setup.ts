@@ -4,11 +4,39 @@ import type { SetupPlayerInput, SetupTeamInput, Team } from '../types';
 import { createDraft } from './draft';
 import { int, mapTeam, normalizePlayers, rowsOf, slug, type Row } from './shared';
 
+export const REQUIRED_TEAM_COUNT = 12;
+export const REQUIRED_ROUNDS = 28;
+
+const PLACEHOLDER_TEAM_NAMES = ['Alpha Wolves', 'Bay City', 'Capital Club', 'Desert Storm'];
+
 export async function isLeagueConfigured(): Promise<boolean> {
   await ensureSchema();
   const sql = getSql();
   const rows = rowsOf(await sql`SELECT 1 FROM draft_settings WHERE id = 1 LIMIT 1`);
   return rows.length > 0;
+}
+
+export async function canReplacePlaceholderLeague(): Promise<boolean> {
+  await ensureSchema();
+  const sql = getSql();
+  const settings = rowsOf<Row>(await sql`SELECT league_name FROM draft_settings WHERE id = 1 LIMIT 1`)[0];
+  if (!settings || String(settings.league_name) !== 'Draft League') return false;
+
+  const teams = rowsOf<Row>(await sql`SELECT name FROM draft_teams ORDER BY sort_order`);
+  if (teams.length !== PLACEHOLDER_TEAM_NAMES.length) return false;
+  if (teams.some((team, index) => String(team.name) !== PLACEHOLDER_TEAM_NAMES[index])) return false;
+
+  const picks = rowsOf<Row>(await sql`SELECT COUNT(*)::int AS count FROM draft_picks`)[0];
+  return int(picks?.count, 0) === 0;
+}
+
+export async function resetPlaceholderLeague(): Promise<void> {
+  if (!(await canReplacePlaceholderLeague())) throw new Error('sample_replacement_not_available');
+  const sql = getSql();
+  await sql`DELETE FROM drafts`;
+  await sql`DELETE FROM draft_players`;
+  await sql`DELETE FROM draft_teams`;
+  await sql`DELETE FROM draft_settings`;
 }
 
 export async function setupLeague(input: {
@@ -25,11 +53,16 @@ export async function setupLeague(input: {
   await ensureSchema();
   if (await isLeagueConfigured()) throw new Error('league_already_configured');
   if (!input.adminCode.trim()) throw new Error('admin_code_required');
-  if (input.teams.length < 2) throw new Error('at_least_two_teams_required');
+  if (input.teams.length !== REQUIRED_TEAM_COUNT) throw new Error(`exactly_${REQUIRED_TEAM_COUNT}_teams_required`);
 
   const teamIds = new Set<string>();
+  const loginCodes = new Set<string>();
   const teams = input.teams.map((team, index) => {
     if (!team.name?.trim() || !team.loginCode?.trim()) throw new Error(`team_${index + 1}_incomplete`);
+    const normalizedLoginCode = team.loginCode.trim().toLowerCase();
+    if (loginCodes.has(normalizedLoginCode)) throw new Error(`team_${index + 1}_login_code_duplicate`);
+    loginCodes.add(normalizedLoginCode);
+
     let id = slug(team.name, `team-${index + 1}`);
     while (teamIds.has(id)) id = `${id}-${index + 1}`;
     teamIds.add(id);
@@ -53,7 +86,7 @@ export async function setupLeague(input: {
     VALUES
       (1, ${input.leagueName.trim() || 'Draft League'}, ${hashCode(input.adminCode)},
        ${input.primaryColor || '#2563eb'}, ${input.secondaryColor || '#0f172a'}, ${input.logoUrl || null},
-       ${Math.max(1, int(input.rounds, 4))}, ${Math.max(10, int(input.clockSeconds, 120))})
+       ${REQUIRED_ROUNDS}, ${Math.max(10, int(input.clockSeconds, 120))})
   `;
   await sql`
     INSERT INTO draft_teams
@@ -81,10 +114,12 @@ export async function authenticateAdmin(code: string): Promise<boolean> {
   return Boolean(rows[0] && safeEqualHash(String(rows[0].admin_code_hash), code));
 }
 
-export async function authenticateTeam(code: string): Promise<Team | null> {
+export async function authenticateTeam(code: string, teamId?: string | null): Promise<Team | null> {
   await ensureSchema();
   const sql = getSql();
-  const teams = rowsOf<Row>(await sql`SELECT * FROM draft_teams ORDER BY sort_order`);
+  const teams = teamId
+    ? rowsOf<Row>(await sql`SELECT * FROM draft_teams WHERE id = ${teamId} LIMIT 1`)
+    : rowsOf<Row>(await sql`SELECT * FROM draft_teams ORDER BY sort_order`);
   const match = teams.find((team) => safeEqualHash(String(team.login_code_hash), code));
   return match ? mapTeam(match) : null;
 }
