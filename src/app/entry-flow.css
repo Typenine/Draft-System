@@ -1,0 +1,72 @@
+.setup-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.setup-summary > div {
+  display: grid;
+  gap: 3px;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #080e1a;
+}
+.setup-summary small { font-size: .7rem; text-transform: uppercase; letter-spacing: .09em; font-weight: 900; }
+.setup-summary strong { font-size: 1.2rem; }
+.setup-submit, .access-submit { min-height: 48px; font-size: .95rem; }
+.access-panel { max-width: 520px; width: 100%; }
+.access-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.access-choice button {
+  display: grid;
+  gap: 5px;
+  min-height: 112px;
+  padding: 15px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: #080e1a;
+  cursor: pointer;
+}
+.access-choice button span { font-weight: 950; font-size: 1rem; }
+.access-choice button small { line-height: 1.35; }
+.access-choice button.active {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 18%, #080e1a);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 20%, transparent);
+}
+.commissioner-stage { max-width: 1800px; margin: 24px auto 22px; padding: 0 18px; }
+.commissioner-stage-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 22px;
+  margin-bottom: 14px;
+}
+.commissioner-stage-heading h1 { margin-bottom: 6px; font-size: clamp(2rem, 4vw, 3.6rem); }
+.commissioner-stage-heading p { margin: 0; color: var(--muted); }
+.commissioner-stage-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 12px; }
+.commissioner-overlay-frame {
+  height: min(76vh, 980px);
+  min-height: 700px;
+  overflow: hidden;
+  border: 1px solid #30343b;
+  border-radius: 8px;
+  background: #000;
+  box-shadow: 0 24px 70px rgba(0,0,0,.42);
+}
+
+@media (max-width: 900px) {
+  .setup-summary, .access-choice { grid-template-columns: 1fr; }
+  .commissioner-stage-heading { align-items: stretch; flex-direction: column; }
+  .commissioner-stage-actions { justify-content: flex-start; }
+  .commissioner-overlay-frame { min-height: 520px; height: 68vh; }
+}
+
+@media (max-width: 700px) {
+  .form-grid.three { grid-template-columns: 1fr; }
+  .login-page { grid-template-columns: 1fr; gap: 28px; padding: 28px 18px; }
+  .login-hero h1 { font-size: clamp(2.5rem, 14vw, 4.5rem); }
+  .access-choice button { min-height: 92px; }
+  .commissioner-stage { padding: 0 8px; }
+  .commissioner-overlay-frame { min-height: 430px; height: 60vh; }
+}
