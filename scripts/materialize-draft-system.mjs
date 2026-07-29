@@ -12,6 +12,7 @@ const materializers = [
   'scripts/finalize-security-reliability.mjs',
   'scripts/finalize-active-draft-recovery.mjs',
   'scripts/finalize-full-reset-safety.mjs',
+  'scripts/finalize-polling-animation-layout.mjs',
 ];
 
 if (process.env.CI && !force) {
