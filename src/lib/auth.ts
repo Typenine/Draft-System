@@ -25,9 +25,11 @@ function signature(payload: string): string {
   return createHmac('sha256', secret()).update(payload).digest('base64url');
 }
 
-type SessionInput = { role: 'admin' } | { role: 'team'; teamId: string };
+type SessionInput =
+  | { role: 'admin'; authVersion: number }
+  | { role: 'team'; teamId: string; authVersion: number };
 
-export function createSessionToken(session: SessionInput, hours = 24 * 14): string {
+export function createSessionToken(session: SessionInput, hours = 24): string {
   const payload = Buffer.from(JSON.stringify({ ...session, exp: Date.now() + hours * 60 * 60 * 1000 })).toString('base64url');
   return `${payload}.${signature(payload)}`;
 }
@@ -42,7 +44,7 @@ export function readSessionToken(token: string | undefined): Session | null {
   if (left.length !== right.length || !timingSafeEqual(left, right)) return null;
   try {
     const session = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Session;
-    if (!session.exp || session.exp < Date.now()) return null;
+    if (!session.exp || session.exp < Date.now() || !Number.isInteger(session.authVersion) || session.authVersion < 1) return null;
     if (session.role === 'admin') return session;
     if (session.role === 'team' && session.teamId) return session;
     return null;
