@@ -14,6 +14,7 @@ const authServer = await source('src/lib/auth-server.ts');
 const draftStore = await source('src/lib/store/draft.ts');
 const adminStore = await source('src/lib/store/admin.ts');
 const moderation = await source('src/lib/store/moderation.ts');
+const shared = await source('src/lib/store/shared.ts');
 const draftRoute = await source('src/app/api/draft/route.ts');
 const tradeRoute = await source('src/app/api/draft/trade/route.ts');
 const stateRoute = await source('src/app/api/state/route.ts');
@@ -44,12 +45,15 @@ requireMarkers('src/lib/db.ts', db, [
   'auth_version integer NOT NULL DEFAULT 1',
   'from_team_id text REFERENCES draft_teams(id)',
   'auto_pick_enabled boolean NOT NULL DEFAULT true',
+  'active_draft_id uuid',
+  'pause_started_at timestamptz',
 ]);
 requireMarkers('src/lib/auth.ts', auth, ['authVersion', 'hours = 24']);
 requireMarkers('src/lib/auth-server.ts', authServer, ['verifyRequestSession', 'recordLoginFailure', 'setupSecretMatches']);
 requireMarkers('src/app/api/auth/login/route.ts', loginRoute, ['checkLoginRateLimit', 'Retry-After', 'authenticateAdminWithVersion']);
 requireMarkers('src/app/api/setup/route.ts', setupRoute, ['setupSecretMatches', 'invalid_setup_key']);
 requireMarkers('src/app/api/state/route.ts', stateRoute, ['pendingTrades: []', 'ownPendingPick']);
+requireMarkers('src/lib/store/shared.ts', shared, ['settings.active_draft_id', 'UPDATE draft_settings SET active_draft_id']);
 
 requireMarkers('src/lib/store/draft.ts', draftStore, [
   "pause_reason = 'pending_pick'",
@@ -59,6 +63,11 @@ requireMarkers('src/lib/store/draft.ts', draftStore, [
   "pause_reason = 'clock_expired'",
   'autoPickEnabled: settings.auto_pick_enabled !== false',
   'pendingTrades: await listModerationTrades',
+  'recoverStalledAnimation',
+  "reason === 'trade_animation'",
+  'drafts: allDraftRows.map(mapDraft)',
+  'activeDraftId: settings.active_draft_id',
+  'options.activate',
 ]);
 requireMarkers('src/lib/store/admin.ts', adminStore, [
   "normalizedAction === 'approve_pick'",
@@ -66,6 +75,7 @@ requireMarkers('src/lib/store/admin.ts', adminStore, [
   "normalizedAction === 'finish_pick_animation'",
   "normalizedAction === 'finish_trade_animation'",
   "normalizedAction === 'set_auto_pick'",
+  "normalizedAction === 'activate_draft'",
   'await resetDraftState(draftId)',
   'auth_version = auth_version + 1',
 ]);
@@ -74,9 +84,12 @@ requireMarkers('src/lib/store/moderation.ts', moderation, [
   "status = 'approved'",
   'animation_pending = true',
   "pause_reason = 'trade_animation'",
+  "pause_started_at = now()",
   "sql.transaction(operations, { isolationLevel: 'Serializable' })",
   'resetDraftState',
   'trade_reset_requires_manual_review',
+  'requiredCurrentPickReversal',
+  'tradeReversalOperations(draftId, true)',
 ]);
 requireMarkers('src/app/api/draft/route.ts', draftRoute, [
   'pendingPickView',
@@ -88,6 +101,7 @@ requireMarkers('src/app/api/draft/route.ts', draftRoute, [
   "'queue_get'",
   "'queue_set'",
   "'set_auto_pick'",
+  "'activate_draft'",
 ]);
 requireMarkers('src/app/api/draft/trade/route.ts', tradeRoute, [
   'authentication_required',
@@ -105,8 +119,16 @@ requireMarkers('src/app/api/draft/team-roster/route.ts', rosterRoute, ['FROM dra
 requireMarkers('src/app/api/draft/player-videos/route.ts', mediaRoute, ['draft_player_media', 'verifyRequestSession', 'https_or_public_path']);
 requireMarkers('src/app/api/draft/player-image/route.ts', imageRoute, ['draft_player_media', 'NextResponse.redirect']);
 requireMarkers('src/app/api/team-prospect-draftboard/route.ts', boardRoute, ['draft_team_boards', 'orderIds', 'ON CONFLICT (team_id)']);
-requireMarkers('src/lib/draft-compat.ts', compat, ['verifyRequestSession', 'eventLogoUrl(state.branding?.logoUrl)', 'resumeAfterAnimation']);
-requireMarkers('src/app/commissioner/page.tsx', commissioner, ['Pending approvals', "action('approve_pick')", "action('approve_trade'", 'PlayerSearchPicker', 'Clock-expiration auto-pick']);
+requireMarkers('src/lib/draft-compat.ts', compat, ['verifyRequestSession', 'eventLogoUrl(state.branding?.logoUrl)', 'resumeAfterAnimation', 'endDraftPause']);
+requireMarkers('src/app/commissioner/page.tsx', commissioner, [
+  'Pending approvals',
+  "action('approve_pick')",
+  "action('approve_trade'",
+  'PlayerSearchPicker',
+  'Clock-expiration auto-pick',
+  'Create inactive draft',
+  "action('activate_draft'",
+]);
 requireMarkers('src/app/commissioner/media/page.tsx', mediaPage, ['Player Media', '/api/draft/player-videos', 'PlayerSearchPicker']);
 requireMarkers('src/components/admin/PlayerSearchPicker.tsx', playerPicker, ['Search player name, NFL team, college, rank, or player ID', "['idp', 'IDP']", 'PAGE_SIZE = 100']);
 requireMarkers('src/app/archives/page.tsx', archives, ['/api/archives', 'Saved board']);
@@ -115,4 +137,4 @@ requireMarkers('src/components/draft-overlay/DraftOverlayLive.tsx', overlay, ['b
 requireMarkers('src/app/draft/room/team/page.tsx', teamRoom, ['Admin mode — view as team', 'Pick Submitted — Awaiting Admin Approval', 'DraftTradeCenter', 'Toggle auto-pick']);
 requireMarkers('src/app/page.tsx', homepage, ['Deployment setup key', 'SETUP_SECRET']);
 
-console.log('[parity] Standalone runtime preserves East v. West draft functionality with protected pending data, commissioner-only transitions, transactional trades/resets, keyed setup, revocable sessions, auto-pick, media, and archives.');
+console.log('[parity] Standalone runtime preserves East v. West draft functionality with protected pending data, commissioner-only transitions, transactional trades/resets, explicit active drafts, animation recovery, keyed setup, revocable sessions, auto-pick, media, and archives.');
