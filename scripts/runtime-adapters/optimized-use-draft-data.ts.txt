@@ -67,7 +67,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
   const [remainingSec, setRemainingSec] = useState<number | null>(null);
   const [pendingPick, setPendingPick] = useState<PendingPick | null>(null);
   const [activeViewers, setActiveViewers] = useState<string[]>([]);
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
   const lastSyncRef = useRef(Date.now());
   const revisionRef = useRef<string | null>(null);
   const requestSeqRef = useRef(0);
@@ -183,7 +183,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
     if (remainingSec == null) return 0;
     if (draft?.status !== 'LIVE') return remainingSec;
     return Math.max(0, remainingSec - Math.floor((Date.now() - lastSyncRef.current) / 1000));
-  }, [draft?.status, remainingSec, draft?.curOverall]);
+  }, [draft?.status, remainingSec, draft?.curOverall, tick]);
 
   const currentTeam: OverlayTeam | null = useMemo(() => {
     const name = draft?.onClockTeam;
