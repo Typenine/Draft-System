@@ -31,6 +31,11 @@ const playerPicker = await source('src/components/admin/PlayerSearchPicker.tsx')
 const archives = await source('src/app/archives/page.tsx');
 const archiveRoute = await source('src/app/api/archives/route.ts');
 const overlay = await source('src/components/draft-overlay/DraftOverlayLive.tsx');
+const overlayData = await source('src/components/draft-overlay/useDraftData.ts');
+const stateHook = await source('src/components/useDraftState.ts');
+const endRound = await source('src/components/draft-overlay/EndOfRoundAnimation.tsx');
+const startRound = await source('src/components/draft-overlay/StartOfRoundAnimation.tsx');
+const adminCss = await source('src/app/admin-enhancements.css');
 const teamRoom = await source('src/app/draft/room/team/page.tsx');
 const homepage = await source('src/app/page.tsx');
 
@@ -52,7 +57,7 @@ requireMarkers('src/lib/auth.ts', auth, ['authVersion', 'hours = 24']);
 requireMarkers('src/lib/auth-server.ts', authServer, ['verifyRequestSession', 'recordLoginFailure', 'setupSecretMatches']);
 requireMarkers('src/app/api/auth/login/route.ts', loginRoute, ['checkLoginRateLimit', 'Retry-After', 'authenticateAdminWithVersion']);
 requireMarkers('src/app/api/setup/route.ts', setupRoute, ['setupSecretMatches', 'invalid_setup_key']);
-requireMarkers('src/app/api/state/route.ts', stateRoute, ['pendingTrades: []', 'ownPendingPick']);
+requireMarkers('src/app/api/state/route.ts', stateRoute, ['ownPendingPick', "session?.role === 'admin' ? state.pendingTrades : []", 'getDraftLiveState', "mode') === 'live"]);
 requireMarkers('src/lib/store/shared.ts', shared, ['settings.active_draft_id', 'UPDATE draft_settings SET active_draft_id']);
 
 requireMarkers('src/lib/store/draft.ts', draftStore, [
@@ -68,6 +73,8 @@ requireMarkers('src/lib/store/draft.ts', draftStore, [
   'drafts: allDraftRows.map(mapDraft)',
   'activeDraftId: settings.active_draft_id',
   'options.activate',
+  'getDraftLiveState',
+  'players: []',
 ]);
 requireMarkers('src/lib/store/admin.ts', adminStore, [
   "normalizedAction === 'approve_pick'",
@@ -94,6 +101,8 @@ requireMarkers('src/lib/store/moderation.ts', moderation, [
 requireMarkers('src/app/api/draft/route.ts', draftRoute, [
   'pendingPickView',
   'canSeePending',
+  'getDraftLiveState',
+  "mode') === 'live",
   "anim_clock_start: 'finish_pick_animation'",
   "trade_anim_complete: 'finish_trade_animation'",
   "end_draft_anim_complete: 'finish_end_draft_animation'",
@@ -128,13 +137,28 @@ requireMarkers('src/app/commissioner/page.tsx', commissioner, [
   'Clock-expiration auto-pick',
   'Create inactive draft',
   "action('activate_draft'",
+  'commissioner-player-panel',
+  'commissioner-draft-management-panel',
 ]);
 requireMarkers('src/app/commissioner/media/page.tsx', mediaPage, ['Player Media', '/api/draft/player-videos', 'PlayerSearchPicker']);
 requireMarkers('src/components/admin/PlayerSearchPicker.tsx', playerPicker, ['Search player name, NFL team, college, rank, or player ID', "['idp', 'IDP']", 'PAGE_SIZE = 100']);
 requireMarkers('src/app/archives/page.tsx', archives, ['/api/archives', 'Saved board']);
 requireMarkers('src/app/api/archives/route.ts', archiveRoute, ['listArchives', 'Cache-Control']);
-requireMarkers('src/components/draft-overlay/DraftOverlayLive.tsx', overlay, ['boardRoundStart', 'visibleBoardRounds', 'pendingTradeAnimation', '/api/draft/player-videos']);
+requireMarkers('src/components/draft-overlay/DraftOverlayLive.tsx', overlay, [
+  'boardRoundStart',
+  'visibleBoardRounds',
+  'pendingTradeAnimation',
+  '/api/draft/player-videos',
+  'nextSlot?.team || null',
+  "draft?.pauseReason !== 'pick_animation'",
+  "draft?.pauseReason === 'end_draft_animation'",
+]);
+requireMarkers('src/components/draft-overlay/useDraftData.ts', overlayData, ['/api/draft?mode=live', 'document.hidden', 'fetchAvailable']);
+requireMarkers('src/components/useDraftState.ts', stateHook, ['/api/state?mode=live', 'mergeLiveState', 'document.hidden']);
+requireMarkers('src/components/draft-overlay/EndOfRoundAnimation.tsx', endRound, ['Seattle 26']);
+requireMarkers('src/components/draft-overlay/StartOfRoundAnimation.tsx', startRound, ['Seattle 26']);
+requireMarkers('src/app/admin-enhancements.css', adminCss, ['grid-template-areas:', '.commissioner-player-panel', '.commissioner-draft-management-panel']);
 requireMarkers('src/app/draft/room/team/page.tsx', teamRoom, ['Admin mode — view as team', 'Pick Submitted — Awaiting Admin Approval', 'DraftTradeCenter', 'Toggle auto-pick']);
 requireMarkers('src/app/page.tsx', homepage, ['Deployment setup key', 'SETUP_SECRET']);
 
-console.log('[parity] Standalone runtime preserves East v. West draft functionality with protected pending data, commissioner-only transitions, transactional trades/resets, explicit active drafts, animation recovery, keyed setup, revocable sessions, auto-pick, media, and archives.');
+console.log('[parity] Standalone runtime preserves East v. West draft functionality with protected pending data, commissioner-only transitions, transactional trades/resets, explicit active drafts, lightweight live polling, reliable final animations, Seattle 2026 branding, keyed setup, revocable sessions, auto-pick, media, and archives.');
