@@ -26,7 +26,19 @@ const canonicalFiles = [
   ['scripts/runtime-adapters/security-player-videos-route.ts.txt', 'src/app/api/draft/player-videos/route.ts'],
   ['scripts/runtime-adapters/security-moderation.ts.txt', 'src/lib/store/moderation.ts'],
 ];
-for (const [templatePath, outputPath] of canonicalFiles) await save(outputPath, await text(templatePath));
+for (const [templatePath, outputPath] of canonicalFiles) {
+  const canonical = (await text(templatePath)).replaceAll("isolationMode: 'Serializable'", "isolationLevel: 'Serializable'");
+  await save(outputPath, canonical);
+}
+
+let db = await text('src/lib/db.ts');
+db = replaceRequired(
+  db,
+  "      await sql`\n        UPDATE draft_trade_assets asset SET\n          from_team_id = COALESCE(asset.from_team_id, from_team.id),\n          to_team_id = COALESCE(asset.to_team_id, to_team.id),\n          pick_original_team_id = COALESCE(asset.pick_original_team_id, original_team.id)\n        FROM draft_teams from_team, draft_teams to_team\n        LEFT JOIN draft_teams original_team ON original_team.name = asset.pick_original_team\n        WHERE from_team.name = asset.from_team AND to_team.name = asset.to_team\n          AND (asset.from_team_id IS NULL OR asset.to_team_id IS NULL OR (asset.pick_original_team IS NOT NULL AND asset.pick_original_team_id IS NULL))\n      `;",
+  "      await sql`\n        UPDATE draft_trade_assets asset SET\n          from_team_id = COALESCE(asset.from_team_id, (SELECT team.id FROM draft_teams team WHERE team.name = asset.from_team LIMIT 1)),\n          to_team_id = COALESCE(asset.to_team_id, (SELECT team.id FROM draft_teams team WHERE team.name = asset.to_team LIMIT 1)),\n          pick_original_team_id = COALESCE(asset.pick_original_team_id, (SELECT team.id FROM draft_teams team WHERE team.name = asset.pick_original_team LIMIT 1))\n        WHERE asset.from_team_id IS NULL OR asset.to_team_id IS NULL\n          OR (asset.pick_original_team IS NOT NULL AND asset.pick_original_team_id IS NULL)\n      `;",
+  'stable trade identity backfill',
+);
+await save('src/lib/db.ts', db);
 
 let homepage = await text('src/app/page.tsx');
 homepage = replaceRequired(
@@ -81,7 +93,7 @@ const required = [
   ['src/app/api/state/route.ts', 'pendingTrades: []'],
   ['src/app/api/draft/route.ts', "identity.sessionRole !== 'admin'"],
   ['src/app/api/draft/trade/route.ts', 'from_team_id'],
-  ['src/lib/store/moderation.ts', "sql.transaction(operations, { isolationMode: 'Serializable' })"],
+  ['src/lib/store/moderation.ts', "sql.transaction(operations, { isolationLevel: 'Serializable' })"],
   ['src/lib/store/moderation.ts', 'resetDraftState'],
   ['src/lib/store/admin.ts', 'auth_version = auth_version + 1'],
   ['src/app/page.tsx', 'Deployment setup key'],
