@@ -1,11 +1,12 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { verifyRequestSession } from '@/lib/auth-server';
 import { databaseConfigured, DatabaseNotConfiguredError } from '@/lib/db';
 import { getDraftState } from '@/lib/store';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   if (!databaseConfigured()) {
     return NextResponse.json({
       configured: false,
@@ -21,7 +22,16 @@ export async function GET() {
     }, { status: 503 });
   }
   try {
-    return NextResponse.json(await getDraftState(), { headers: { 'Cache-Control': 'no-store' } });
+    const [state, session] = await Promise.all([getDraftState(), verifyRequestSession(req)]);
+    if (session?.role === 'admin') return NextResponse.json(state, { headers: { 'Cache-Control': 'no-store' } });
+    const ownPendingPick = session?.role === 'team' && state.pendingPick?.teamId === session.teamId ? state.pendingPick : null;
+    return NextResponse.json({
+      ...state,
+      players: session?.role === 'team' ? state.players : [],
+      availablePlayers: session?.role === 'team' ? state.availablePlayers : [],
+      pendingPick: ownPendingPick,
+      pendingTrades: [],
+    }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'state_load_failed';
     return NextResponse.json({ error: message }, { status: error instanceof DatabaseNotConfiguredError ? 503 : 500 });
