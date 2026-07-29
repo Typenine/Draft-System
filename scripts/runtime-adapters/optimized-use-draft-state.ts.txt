@@ -68,7 +68,7 @@ export function useDraftState(intervalMs = 1500) {
 
   useEffect(() => {
     if (!intervalMs) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    let timer: number | null = null;
     let cancelled = false;
 
     const schedule = () => {
