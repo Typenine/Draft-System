@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { readSessionToken, SESSION_COOKIE } from '@/lib/auth';
+import { verifyRequestSession } from '@/lib/auth-server';
 import { eventLogoUrl } from '@/lib/branding';
 import { ensureSchema, getSql } from '@/lib/db';
 import { getDraftState } from '@/lib/store';
@@ -24,7 +24,7 @@ export function touchPresence(name: string): string[] {
 export function activePresence(): string[] { return touchPresence(''); }
 
 export async function sessionTeam(req: NextRequest, requestedName?: string | null): Promise<{ sessionRole: 'admin' | 'team'; team: Team | null } | null> {
-  const session = readSessionToken(req.cookies.get(SESSION_COOKIE)?.value);
+  const session = await verifyRequestSession(req);
   if (!session) return null;
   const state = await getDraftState();
   if (session.role === 'admin') {
