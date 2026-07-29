@@ -7,10 +7,10 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   const session = await verifyRequestSession(req);
-  if (!session) return NextResponse.json({ authenticated: false }, { status: 401 });
-  if (session.role === 'admin') return NextResponse.json({ authenticated: true, role: 'admin' });
+  if (!session) return NextResponse.json({ authenticated: false });
+  if (session.role === 'admin') return NextResponse.json({ authenticated: true, isAdmin: true, claims: {} });
   const state = await getDraftState();
   const team = state.teams.find((item) => item.id === session.teamId) || null;
-  if (!team) return NextResponse.json({ authenticated: false }, { status: 401 });
-  return NextResponse.json({ authenticated: true, role: 'team', team });
+  if (!team) return NextResponse.json({ authenticated: false });
+  return NextResponse.json({ authenticated: true, isAdmin: false, claims: { team: team.name } });
 }

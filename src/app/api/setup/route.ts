@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DRAFTABLE_PLAYER_SOURCE } from '@/data/draftable-player-source';
+import { setupSecretMatches } from '@/lib/auth-server';
 import { databaseConfigured } from '@/lib/db';
 import { getDraftablePlayers } from '@/lib/draftable-player-source';
 import {
@@ -54,12 +55,17 @@ export async function POST(req: NextRequest) {
     const validationError = validatePayload(adminCode, teams, draftFormat, body.baseOrder, body.draftOrder);
     if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
 
+    const configured = await isLeagueConfigured();
+    if ((!configured || body.replacePlaceholder === true) && !setupSecretMatches(body.setupKey)) {
+      return NextResponse.json({ error: 'invalid_setup_key' }, { status: 403 });
+    }
+
     const players = getDraftablePlayers();
     if (players.length < REQUIRED_PLAYER_COUNT) {
       return NextResponse.json({ error: `minimum_${REQUIRED_PLAYER_COUNT}_players_required` }, { status: 500 });
     }
 
-    if (await isLeagueConfigured()) {
+    if (configured) {
       if (body.replacePlaceholder === true) await resetPlaceholderLeague();
       else return NextResponse.json({ error: 'League setup is already complete.' }, { status: 409 });
     }

@@ -29,6 +29,7 @@ export async function ensureSchema(): Promise<void> {
           id integer PRIMARY KEY,
           league_name text NOT NULL,
           admin_code_hash text NOT NULL,
+          auth_version integer NOT NULL DEFAULT 1,
           primary_color text NOT NULL DEFAULT '#2563eb',
           secondary_color text NOT NULL DEFAULT '#0f172a',
           logo_url text,
@@ -41,6 +42,7 @@ export async function ensureSchema(): Promise<void> {
       `;
       await sql`ALTER TABLE draft_settings ADD COLUMN IF NOT EXISTS draft_format text NOT NULL DEFAULT 'linear'`;
       await sql`ALTER TABLE draft_settings ADD COLUMN IF NOT EXISTS base_order jsonb NOT NULL DEFAULT '[]'::jsonb`;
+      await sql`ALTER TABLE draft_settings ADD COLUMN IF NOT EXISTS auth_version integer NOT NULL DEFAULT 1`;
       await sql`UPDATE draft_settings SET logo_url = ${DEFAULT_EVENT_LOGO} WHERE logo_url IS NULL OR btrim(logo_url) = ''`;
 
       await sql`
@@ -52,9 +54,11 @@ export async function ensureSchema(): Promise<void> {
           secondary_color text NOT NULL,
           logo_url text,
           login_code_hash text NOT NULL,
+          auth_version integer NOT NULL DEFAULT 1,
           sort_order integer NOT NULL
         )
       `;
+      await sql`ALTER TABLE draft_teams ADD COLUMN IF NOT EXISTS auth_version integer NOT NULL DEFAULT 1`;
       await sql`
         CREATE TABLE IF NOT EXISTS draft_players (
           id text PRIMARY KEY,
@@ -139,8 +143,11 @@ export async function ensureSchema(): Promise<void> {
           draft_id uuid NOT NULL REFERENCES drafts(id) ON DELETE CASCADE,
           status text NOT NULL DEFAULT 'pending',
           proposed_by text NOT NULL,
+          proposed_by_team_id text REFERENCES draft_teams(id),
           teams jsonb NOT NULL DEFAULT '[]'::jsonb,
+          team_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
           accepted_by jsonb NOT NULL DEFAULT '[]'::jsonb,
+          accepted_by_team_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
           notes text,
           counter_of text,
           animation_pending boolean NOT NULL DEFAULT false,
@@ -151,12 +158,17 @@ export async function ensureSchema(): Promise<void> {
       `;
       await sql`ALTER TABLE draft_trades ADD COLUMN IF NOT EXISTS animation_pending boolean NOT NULL DEFAULT false`;
       await sql`ALTER TABLE draft_trades ADD COLUMN IF NOT EXISTS resume_after_animation boolean NOT NULL DEFAULT false`;
+      await sql`ALTER TABLE draft_trades ADD COLUMN IF NOT EXISTS proposed_by_team_id text REFERENCES draft_teams(id)`;
+      await sql`ALTER TABLE draft_trades ADD COLUMN IF NOT EXISTS team_ids jsonb NOT NULL DEFAULT '[]'::jsonb`;
+      await sql`ALTER TABLE draft_trades ADD COLUMN IF NOT EXISTS accepted_by_team_ids jsonb NOT NULL DEFAULT '[]'::jsonb`;
       await sql`
         CREATE TABLE IF NOT EXISTS draft_trade_assets (
           id uuid PRIMARY KEY,
           trade_id uuid NOT NULL REFERENCES draft_trades(id) ON DELETE CASCADE,
           from_team text NOT NULL,
           to_team text NOT NULL,
+          from_team_id text REFERENCES draft_teams(id),
+          to_team_id text REFERENCES draft_teams(id),
           asset_type text NOT NULL,
           player_id text,
           player_name text,
@@ -165,10 +177,24 @@ export async function ensureSchema(): Promise<void> {
           pick_overall integer,
           pick_year integer,
           pick_round integer,
-          pick_original_team text
+          pick_original_team text,
+          pick_original_team_id text REFERENCES draft_teams(id)
         )
       `;
       await sql`ALTER TABLE draft_trade_assets ADD COLUMN IF NOT EXISTS player_nfl text`;
+      await sql`ALTER TABLE draft_trade_assets ADD COLUMN IF NOT EXISTS from_team_id text REFERENCES draft_teams(id)`;
+      await sql`ALTER TABLE draft_trade_assets ADD COLUMN IF NOT EXISTS to_team_id text REFERENCES draft_teams(id)`;
+      await sql`ALTER TABLE draft_trade_assets ADD COLUMN IF NOT EXISTS pick_original_team_id text REFERENCES draft_teams(id)`;
+      await sql`
+        UPDATE draft_trade_assets asset SET
+          from_team_id = COALESCE(asset.from_team_id, from_team.id),
+          to_team_id = COALESCE(asset.to_team_id, to_team.id),
+          pick_original_team_id = COALESCE(asset.pick_original_team_id, original_team.id)
+        FROM draft_teams from_team, draft_teams to_team
+        LEFT JOIN draft_teams original_team ON original_team.name = asset.pick_original_team
+        WHERE from_team.name = asset.from_team AND to_team.name = asset.to_team
+          AND (asset.from_team_id IS NULL OR asset.to_team_id IS NULL OR (asset.pick_original_team IS NOT NULL AND asset.pick_original_team_id IS NULL))
+      `;
       await sql`
         CREATE TABLE IF NOT EXISTS draft_roster_ownership (
           draft_id uuid NOT NULL REFERENCES drafts(id) ON DELETE CASCADE,
@@ -209,6 +235,15 @@ export async function ensureSchema(): Promise<void> {
         )
       `;
       await sql`
+        CREATE TABLE IF NOT EXISTS draft_login_attempts (
+          key_hash text PRIMARY KEY,
+          failure_count integer NOT NULL DEFAULT 0,
+          window_started_at timestamptz NOT NULL DEFAULT now(),
+          blocked_until timestamptz,
+          updated_at timestamptz NOT NULL DEFAULT now()
+        )
+      `;
+      await sql`
         INSERT INTO draft_roster_ownership
           (draft_id, player_id, owner_team_id, player_name, player_position, player_pro_team, acquired_at)
         SELECT draft_id, player_id, team_id, player_name, player_position, player_pro_team, made_at
@@ -220,6 +255,7 @@ export async function ensureSchema(): Promise<void> {
       await sql`CREATE INDEX IF NOT EXISTS draft_pick_team_idx ON draft_picks (draft_id, team_id)`;
       await sql`CREATE INDEX IF NOT EXISTS draft_trade_status_idx ON draft_trades (draft_id, status, updated_at)`;
       await sql`CREATE INDEX IF NOT EXISTS draft_roster_owner_idx ON draft_roster_ownership (draft_id, owner_team_id)`;
+      await sql`CREATE INDEX IF NOT EXISTS draft_login_attempts_updated_idx ON draft_login_attempts (updated_at)`;
     })().catch((error) => {
       schemaPromise = null;
       throw error;

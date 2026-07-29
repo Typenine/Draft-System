@@ -90,12 +90,12 @@ export async function toLegacyDraftState(state: DraftState) {
     madeAt: pick.madeAt,
   }));
   const mappedSlots = state.slots.map((slot) => ({ overall: slot.overall, round: slot.round, team: teamById.get(slot.teamId)?.name || slot.teamId }));
-  const lastPick = mappedPicks[mappedPicks.length - 1];
   const currentSlot = mappedSlots.find((slot) => slot.overall === draft.currentOverall);
-  const roundEndPause = Boolean(
-    draft.status === 'PAUSED' && draft.pauseReason === 'pick_animation' && lastPick && currentSlot && lastPick.round < currentSlot.round,
-  );
-  const onClockTeam = draft.pauseReason === 'pick_animation' ? null : state.currentTeam?.name || currentSlot?.team || null;
+  const roundEndPause = Boolean(draft.status === 'PAUSED' && draft.pauseReason === 'round_end');
+  const endDraftPause = Boolean(draft.status === 'PAUSED' && draft.pauseReason === 'end_draft_animation');
+  const onClockTeam = draft.pauseReason === 'pick_animation' || draft.pauseReason === 'end_draft_animation'
+    ? null
+    : state.currentTeam?.name || currentSlot?.team || null;
   return {
     id: draft.id,
     year: yearFromDraftName(draft.name),
@@ -116,6 +116,7 @@ export async function toLegacyDraftState(state: DraftState) {
     upcoming: mappedSlots.filter((slot) => slot.overall >= draft.currentOverall).slice(0, 24),
     allSlots: mappedSlots,
     roundEndPause,
+    endDraftPause,
     pendingTradeAnimation: await pendingTradeAnimation(draft.id),
   };
 }
