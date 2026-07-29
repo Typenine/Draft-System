@@ -89,19 +89,14 @@ media = replaceRequired(
 await save('src/app/commissioner/media/page.tsx', media);
 
 let teamRoom = await text('src/app/draft/room/team/page.tsx');
-teamRoom = replaceRequired(
-  teamRoom,
-  "    const authenticatedTeam = me?.claims?.team;\n    if (!authenticatedTeam) { setAutoPickEnabled(false); return; }\n    try {\n      const stored = localStorage.getItem(`evw_draft_autopick_${authenticatedTeam}`);\n      setAutoPickEnabled(stored === 'true');\n    } catch {}\n  }, [me?.claims?.team]);",
-  "    const preferenceTeam = me?.claims?.team || (isAdmin ? myTeam : null);\n    if (!preferenceTeam) { setAutoPickEnabled(false); return; }\n    try {\n      const stored = localStorage.getItem(`evw_draft_autopick_${preferenceTeam}`);\n      setAutoPickEnabled(stored === 'true');\n    } catch {}\n  }, [me?.claims?.team, isAdmin, myTeam]);",
-  'admin-test auto-pick preference',
-);
+teamRoom = teamRoom.replaceAll('const authenticatedTeam = me?.claims?.team;', 'const authenticatedTeam = me?.claims?.team || (isAdmin ? myTeam : null);');
+teamRoom = teamRoom.replace('  }, [me?.claims?.team]);', '  }, [me?.claims?.team, isAdmin, myTeam]);');
 teamRoom = teamRoom.replace('    const authenticatedTeam = me?.claims?.team || null;', '    const authenticatedTeam = me?.claims?.team || (isAdmin ? myTeam : null);');
 teamRoom = teamRoom.replace('  }, [autoPickEnabled, draft?.curOverall, draft?.status, instantSubmitRetry, me?.claims?.team, onClock, pendingPick, pickStatus, queue, submitting]);', '  }, [autoPickEnabled, draft?.curOverall, draft?.status, instantSubmitRetry, isAdmin, me?.claims?.team, myTeam, onClock, pendingPick, pickStatus, queue, submitting]);');
 teamRoom = teamRoom.replace("? `Queue${queue.length ? ` (${queue.length})` : ''}`", "? `Queue${queue.length ? ` (${queue.length})` : ''}${autoPickEnabled ? ' · Auto' : ''}`");
 teamRoom = teamRoom.replace('<span className="text-xs text-[var(--muted)]">Instant submit</span>', '<span className="text-xs text-[var(--muted)]">Auto-pick</span>');
 teamRoom = teamRoom.replace('aria-label="Toggle instant submit"', 'aria-label="Toggle auto-pick"');
 teamRoom = teamRoom.replace('disabled={!me?.claims?.team}', 'disabled={!myTeam}');
-teamRoom = teamRoom.replace('const authenticatedTeam = me?.claims?.team;\n                            if (authenticatedTeam)', 'const authenticatedTeam = me?.claims?.team || (isAdmin ? myTeam : null);\n                            if (authenticatedTeam)');
 teamRoom = teamRoom.replace('Top queued player submits immediately when you are on the clock.', 'Auto-pick is on: your top queued player submits immediately when you are on the clock.');
 await save('src/app/draft/room/team/page.tsx', teamRoom);
 
