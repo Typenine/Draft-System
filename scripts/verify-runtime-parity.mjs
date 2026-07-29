@@ -74,7 +74,7 @@ requireMarkers('src/lib/store/moderation.ts', moderation, [
   "status = 'approved'",
   'animation_pending = true',
   "pause_reason = 'trade_animation'",
-  "sql.transaction(operations, { isolationMode: 'Serializable' })",
+  "sql.transaction(operations, { isolationLevel: 'Serializable' })",
   'resetDraftState',
   'trade_reset_requires_manual_review',
 ]);
