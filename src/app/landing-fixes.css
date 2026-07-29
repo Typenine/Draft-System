@@ -1,0 +1,51 @@
+.login-page {
+  grid-template-columns: minmax(0, 1fr) minmax(350px, 460px);
+}
+.login-hero,
+.login-hero > div { min-width: 0; }
+.login-hero { gap: clamp(26px, 4vw, 46px); }
+.login-hero h1 {
+  max-width: 100%;
+  margin: 12px 0 20px;
+  font-size: clamp(3.15rem, 6.25vw, 7.3rem);
+  line-height: .9;
+  letter-spacing: -.06em;
+  overflow-wrap: normal;
+  word-break: normal;
+  text-wrap: balance;
+}
+.login-hero p {
+  max-width: 650px;
+  margin: 0;
+  font-size: clamp(1rem, 1.45vw, 1.15rem);
+  line-height: 1.5;
+}
+.hero-logo { display: block; margin-bottom: 42px; }
+.hero-status { margin-top: 4px; }
+
+@media (max-width: 1050px) {
+  .login-page {
+    grid-template-columns: 1fr;
+    align-content: start;
+    gap: 38px;
+    padding: clamp(28px, 6vw, 64px);
+  }
+  .login-hero { gap: 26px; }
+  .login-hero h1 {
+    max-width: 10ch;
+    font-size: clamp(3.75rem, 10vw, 7rem);
+  }
+  .login-card { width: min(620px, 100%); }
+}
+
+@media (max-width: 700px) {
+  .login-page { gap: 28px; padding: 28px 18px; }
+  .hero-logo { margin-bottom: 28px; }
+  .login-hero h1 {
+    max-width: 100%;
+    margin-bottom: 16px;
+    font-size: clamp(2.8rem, 14vw, 4.5rem);
+    line-height: .92;
+    letter-spacing: -.055em;
+  }
+}
