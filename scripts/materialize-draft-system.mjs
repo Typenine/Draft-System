@@ -10,6 +10,7 @@ const materializers = [
   'scripts/finalize-completion-archive.mjs',
   'scripts/finalize-player-search-autopick.mjs',
   'scripts/finalize-security-reliability.mjs',
+  'scripts/finalize-active-draft-recovery.mjs',
 ];
 
 if (process.env.CI && !force) {
