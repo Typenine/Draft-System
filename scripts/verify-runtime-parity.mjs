@@ -59,6 +59,7 @@ requireMarkers('src/lib/store/admin.ts', adminStore, [
   "normalizedAction === 'set_auto_pick'",
   "normalizedAction === 'undo'",
   "normalizedAction === 'skip'",
+  "if (normalizedAction === 'reset') {\n    await resetTrades(draftId);",
 ]);
 requireMarkers('src/lib/store/moderation.ts', moderation, [
   "String(trade.status) !== 'accepted'",
@@ -67,6 +68,8 @@ requireMarkers('src/lib/store/moderation.ts', moderation, [
   "pause_reason = 'trade_animation'",
   'draft_roster_ownership',
   'draft_future_picks',
+  'ORDER BY updated_at DESC, id DESC',
+  'UPDATE draft_slots SET team_id = ${fromTeamId}',
 ]);
 requireMarkers('src/app/api/draft/route.ts', draftRoute, [
   'pendingPickView',
@@ -141,9 +144,14 @@ requireMarkers('src/app/commissioner/media/page.tsx', mediaPage, [
 ]);
 if (mediaPage.includes('<label>Player<select')) throw new Error('[parity] Player media still renders every player in a select.');
 requireMarkers('src/components/admin/PlayerSearchPicker.tsx', playerPicker, [
-  'Search name, position, NFL team, college, rank, or ID',
-  'All positions',
-  'slice(0, 50)',
+  'Search player name, NFL team, college, rank, or player ID',
+  "['all', 'All players']",
+  "['offense', 'Offense']",
+  "['idp', 'IDP']",
+  'All NFL teams',
+  'Any college',
+  'PAGE_SIZE = 100',
+  'Show {Math.min(PAGE_SIZE',
   "event.key === 'ArrowDown'",
 ]);
 requireMarkers('src/app/archives/page.tsx', archives, [
@@ -171,4 +179,4 @@ requireMarkers('src/app/draft/room/team/page.tsx', teamRoom, [
   'My upcoming picks',
 ]);
 
-console.log('[parity] Standalone runtime preserves East v. West approvals, searchable players, queue auto-pick controls, clock-expiration settings, trades, ownership, media, animations, and archives.');
+console.log('[parity] Standalone runtime preserves East v. West approvals, robust player browsing, queue auto-pick controls, clock-expiration settings, trade-safe reset, ownership, media, animations, and archives.');
