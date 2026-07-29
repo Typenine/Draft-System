@@ -124,8 +124,8 @@ export type DraftState = {
 };
 
 export type Session =
-  | { role: 'admin'; exp: number }
-  | { role: 'team'; teamId: string; exp: number };
+  | { role: 'admin'; authVersion: number; exp: number }
+  | { role: 'team'; teamId: string; authVersion: number; exp: number };
 
 export type SetupTeamInput = {
   id?: string;
