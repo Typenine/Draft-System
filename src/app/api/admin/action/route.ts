@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readSessionToken, SESSION_COOKIE } from '@/lib/auth';
+import { verifyRequestSession } from '@/lib/auth-server';
 import { runAdminAction } from '@/lib/store';
 
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
-  const session = readSessionToken(req.cookies.get(SESSION_COOKIE)?.value);
+  const session = await verifyRequestSession(req);
   if (!session || session.role !== 'admin') return NextResponse.json({ error: 'Commissioner access required.' }, { status: 403 });
   try {
     const body = await req.json() as Record<string, unknown>;
