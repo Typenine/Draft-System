@@ -1,0 +1,231 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { configureRuntimeTeams, runtimeTeam } from '@/lib/runtime-teams';
+import { getTeamLogoPath } from '@/lib/utils/team-utils';
+
+interface DraftPick {
+  overall: number;
+  round: number;
+  team: string;
+  playerId: string;
+  playerName?: string | null;
+  playerPos?: string | null;
+  playerNfl?: string | null;
+  madeAt: string;
+}
+interface UpcomingPick { overall: number; round: number; team: string }
+interface DraftOverview {
+  id: string;
+  year: number;
+  rounds: number;
+  clockSeconds: number;
+  status: 'NOT_STARTED' | 'LIVE' | 'PAUSED' | 'COMPLETED';
+  curOverall: number;
+  onClockTeam?: string | null;
+  deadlineTs?: string | null;
+  pausedRemainingSecs?: number | null;
+  pauseReason?: string | null;
+  eventName?: string | null;
+  eventLogoUrl?: string | null;
+  eventColor1?: string | null;
+  eventColor2?: string | null;
+  pendingTradeAnimation?: {
+    tradeId?: string | null;
+    teams: string[];
+    assets: Array<Record<string, unknown>>;
+    resumeAfterAnimation?: boolean;
+    triggerPickAnimation?: boolean;
+    newClockTeam?: string | null;
+  } | null;
+  roundEndPause?: boolean | null;
+  endDraftPause?: boolean | null;
+  recentPicks: DraftPick[];
+  allPicks?: DraftPick[];
+  upcoming: UpcomingPick[];
+  allSlots?: UpcomingPick[];
+}
+interface AvailablePlayer { id: string; name: string; pos: string; nfl: string; college?: string | null }
+interface OverlayTeam { name: string; abbrev: string; colors: [string, string, string | null] }
+interface PendingPick { id: string; overall: number; team: string; playerId: string; playerName: string | null; playerPos: string | null; playerNfl: string | null }
+interface DraftPayload {
+  draft?: DraftOverview | null;
+  live?: DraftOverview | null;
+  available?: AvailablePlayer[];
+  usingCustom?: boolean;
+  remainingSec?: number | null;
+  pendingPick?: PendingPick | null;
+  activeViewers?: string[];
+  teams?: Array<Record<string, unknown>>;
+  revision?: string;
+}
+
+export function useDraftData(basePollIntervalMs = 1000) {
+  const [draft, setDraft] = useState<DraftOverview | null>(null);
+  const [available, setAvailable] = useState<AvailablePlayer[]>([]);
+  const [usingCustom, setUsingCustom] = useState(true);
+  const [remainingSec, setRemainingSec] = useState<number | null>(null);
+  const [pendingPick, setPendingPick] = useState<PendingPick | null>(null);
+  const [activeViewers, setActiveViewers] = useState<string[]>([]);
+  const [, setTick] = useState(0);
+  const lastSyncRef = useRef(Date.now());
+  const revisionRef = useRef<string | null>(null);
+  const requestSeqRef = useRef(0);
+
+  const applyPayload = useCallback((json: DraftPayload, live = false) => {
+    if (Array.isArray(json.teams)) configureRuntimeTeams(json.teams);
+    const nextDraft = (live ? json.live : json.draft) ?? null;
+    setDraft(nextDraft);
+    if (Array.isArray(json.available)) setAvailable(json.available);
+    if (typeof json.usingCustom === 'boolean') setUsingCustom(json.usingCustom);
+    setRemainingSec(typeof json.remainingSec === 'number' ? json.remainingSec : null);
+    setPendingPick((json.pendingPick || null) as PendingPick | null);
+    if (Array.isArray(json.activeViewers)) setActiveViewers(json.activeViewers);
+    if (typeof json.revision === 'string') revisionRef.current = json.revision;
+    lastSyncRef.current = Date.now();
+  }, []);
+
+  const fetchAvailable = useCallback(async () => {
+    try {
+      const response = await fetch('/api/draft?include=available', { cache: 'no-store' });
+      if (!response.ok) return;
+      const json = await response.json() as DraftPayload;
+      if (Array.isArray(json.teams)) configureRuntimeTeams(json.teams);
+      if (Array.isArray(json.available)) setAvailable(json.available);
+      if (typeof json.usingCustom === 'boolean') setUsingCustom(json.usingCustom);
+    } catch {
+      // Retain the previous available-player list.
+    }
+  }, []);
+
+  const fetchBootstrap = useCallback(async () => {
+    const seq = ++requestSeqRef.current;
+    try {
+      const response = await fetch('/api/draft?include=available', { cache: 'no-store' });
+      if (!response.ok) return;
+      const json = await response.json() as DraftPayload;
+      if (seq === requestSeqRef.current) applyPayload(json, false);
+    } catch {
+      // Keep the last valid frame on transient network errors.
+    }
+  }, [applyPayload]);
+
+  const fetchLive = useCallback(async () => {
+    const seq = ++requestSeqRef.current;
+    try {
+      const response = await fetch('/api/draft?mode=live', { cache: 'no-store' });
+      if (!response.ok) return;
+      const json = await response.json() as DraftPayload;
+      if (seq !== requestSeqRef.current) return;
+      const previousRevision = revisionRef.current;
+      applyPayload(json, true);
+      if (json.revision && previousRevision && json.revision !== previousRevision) void fetchAvailable();
+    } catch {
+      // Keep the last valid frame on transient network errors.
+    }
+  }, [applyPayload, fetchAvailable]);
+
+  useEffect(() => { void fetchBootstrap(); }, [fetchBootstrap]);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+    const schedule = () => {
+      if (cancelled || document.hidden) return;
+      const animationPause = draft?.status === 'PAUSED' && ['pick_animation', 'trade_animation', 'end_draft_animation', 'round_end'].includes(draft.pauseReason || '');
+      const delay = draft?.status === 'LIVE'
+        ? Math.max(900, basePollIntervalMs)
+        : animationPause
+          ? 1000
+          : draft?.status === 'PAUSED'
+            ? 2500
+            : draft?.status === 'COMPLETED'
+              ? 10000
+              : 5000;
+      timer = window.setTimeout(async () => {
+        await fetchLive();
+        schedule();
+      }, delay + Math.floor(Math.random() * 250));
+    };
+    const visibility = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = null;
+      if (!document.hidden) void fetchLive().finally(schedule);
+    };
+    schedule();
+    document.addEventListener('visibilitychange', visibility);
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', visibility);
+    };
+  }, [basePollIntervalMs, draft?.pauseReason, draft?.status, fetchLive]);
+
+  useEffect(() => {
+    const heartbeat = () => fetch('/api/draft', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'presence', team: 'Overlay' }),
+    }).then((response) => response.json()).then((json) => {
+      if (Array.isArray(json.activeViewers)) setActiveViewers(json.activeViewers);
+    }).catch(() => {});
+    heartbeat();
+    const id = window.setInterval(() => { if (!document.hidden) heartbeat(); }, 20000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (draft?.status !== 'LIVE') return;
+    const id = window.setInterval(() => setTick((value) => value + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [draft?.status]);
+
+  const localRemainingSec = useMemo(() => {
+    if (remainingSec == null) return 0;
+    if (draft?.status !== 'LIVE') return remainingSec;
+    return Math.max(0, remainingSec - Math.floor((Date.now() - lastSyncRef.current) / 1000));
+  }, [draft?.status, remainingSec, draft?.curOverall]);
+
+  const currentTeam: OverlayTeam | null = useMemo(() => {
+    const name = draft?.onClockTeam;
+    if (!name) return null;
+    const team = runtimeTeam(name);
+    return { name, abbrev: team.shortName, colors: [team.primaryColor, team.secondaryColor, null] };
+  }, [draft?.onClockTeam]);
+
+  const currentPickIndex = Math.max(0, (draft?.curOverall || 1) - 1);
+  const slots = draft?.allSlots || draft?.upcoming || [];
+  const pickMap = new Map((draft?.allPicks || draft?.recentPicks || []).map((pick) => [pick.overall, pick]));
+  const draftGrid = slots.map((slot) => {
+    const pick = pickMap.get(slot.overall);
+    return { player: pick ? (pick.playerName || pick.playerId) : null, position: pick?.playerPos || null, team: pick?.team || slot.team };
+  });
+  const picks = draft?.recentPicks || [];
+  const lastPick = picks.length ? picks[picks.length - 1] : null;
+  const nextTeams = (draft?.upcoming || [])
+    .filter((slot) => lastPick ? slot.overall > lastPick.overall : slot.overall >= (draft?.curOverall || 1))
+    .slice(0, 3)
+    .map((slot) => {
+      const team = runtimeTeam(slot.team);
+      return { name: slot.team, abbrev: team.shortName, colors: [team.primaryColor, team.secondaryColor, null] as [string, string, string | null], logoPath: getTeamLogoPath(slot.team) };
+    });
+
+  return {
+    draft,
+    remainingSec,
+    available,
+    usingCustom,
+    currentTeam,
+    currentPickIndex,
+    timerSeconds: localRemainingSec,
+    draftOrder: slots.map((slot) => slot.team),
+    draftGrid,
+    nextTeams,
+    lastPick,
+    isNewPick: false,
+    localRemainingSec,
+    pendingPick,
+    pendingTradeAnimation: draft?.pendingTradeAnimation || null,
+    activeViewers,
+    refetch: fetchLive,
+  };
+}
