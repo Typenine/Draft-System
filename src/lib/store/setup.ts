@@ -1,6 +1,6 @@
-import { ensureSchema, getSql } from '../db';
 import { hashCode, safeEqualHash } from '../auth';
 import type { DraftFormat, SetupPlayerInput, SetupTeamInput, Team } from '../types';
+import { ensureSchema, getSql } from '../db';
 import { createDraft, generateSlotTeamIds, normalizeDraftFormat } from './draft';
 import { int, mapTeam, normalizePlayers, rowsOf, slug, type Row } from './shared';
 
@@ -26,8 +26,7 @@ function validIndexOrder(value: unknown, expectedLength: number, requireUnique: 
 
 export async function isLeagueConfigured(): Promise<boolean> {
   await ensureSchema();
-  const sql = getSql();
-  const rows = rowsOf(await sql`SELECT 1 FROM draft_settings WHERE id = 1 LIMIT 1`);
+  const rows = rowsOf(await getSql()`SELECT 1 FROM draft_settings WHERE id = 1 LIMIT 1`);
   return rows.length > 0;
 }
 
@@ -36,11 +35,9 @@ export async function canReplacePlaceholderLeague(): Promise<boolean> {
   const sql = getSql();
   const settings = rowsOf<Row>(await sql`SELECT league_name FROM draft_settings WHERE id = 1 LIMIT 1`)[0];
   if (!settings || String(settings.league_name) !== 'Draft League') return false;
-
   const teams = rowsOf<Row>(await sql`SELECT name FROM draft_teams ORDER BY sort_order`);
   if (teams.length !== PLACEHOLDER_TEAM_NAMES.length) return false;
   if (teams.some((team, index) => String(team.name) !== PLACEHOLDER_TEAM_NAMES[index])) return false;
-
   const picks = rowsOf<Row>(await sql`SELECT COUNT(*)::int AS count FROM draft_picks`)[0];
   return int(picks?.count, 0) === 0;
 }
@@ -80,7 +77,6 @@ export async function setupLeague(input: {
     const normalizedLoginCode = team.loginCode.trim().toLowerCase();
     if (loginCodes.has(normalizedLoginCode)) throw new Error(`team_${index + 1}_login_code_duplicate`);
     loginCodes.add(normalizedLoginCode);
-
     let id = slug(team.name, `team-${index + 1}`);
     while (teamIds.has(id)) id = `${id}-${index + 1}`;
     teamIds.add(id);
@@ -132,19 +128,26 @@ export async function setupLeague(input: {
   return createDraft(`Draft ${new Date().getFullYear()}`, { draftFormat, baseOrder, slotTeamIds });
 }
 
-export async function authenticateAdmin(code: string): Promise<boolean> {
+export async function authenticateAdminWithVersion(code: string): Promise<number | null> {
   await ensureSchema();
-  const sql = getSql();
-  const rows = rowsOf<Row>(await sql`SELECT admin_code_hash FROM draft_settings WHERE id = 1 LIMIT 1`);
-  return Boolean(rows[0] && safeEqualHash(String(rows[0].admin_code_hash), code));
+  const row = rowsOf<Row>(await getSql()`SELECT admin_code_hash, auth_version FROM draft_settings WHERE id = 1 LIMIT 1`)[0];
+  return row && safeEqualHash(String(row.admin_code_hash), code) ? int(row.auth_version, 1) : null;
 }
 
-export async function authenticateTeam(code: string, teamId?: string | null): Promise<Team | null> {
+export async function authenticateTeamWithVersion(code: string, teamId?: string | null): Promise<{ team: Team; authVersion: number } | null> {
   await ensureSchema();
   const sql = getSql();
   const teams = teamId
     ? rowsOf<Row>(await sql`SELECT * FROM draft_teams WHERE id = ${teamId} LIMIT 1`)
     : rowsOf<Row>(await sql`SELECT * FROM draft_teams ORDER BY sort_order`);
   const match = teams.find((team) => safeEqualHash(String(team.login_code_hash), code));
-  return match ? mapTeam(match) : null;
+  return match ? { team: mapTeam(match), authVersion: int(match.auth_version, 1) } : null;
+}
+
+export async function authenticateAdmin(code: string): Promise<boolean> {
+  return (await authenticateAdminWithVersion(code)) !== null;
+}
+
+export async function authenticateTeam(code: string, teamId?: string | null): Promise<Team | null> {
+  return (await authenticateTeamWithVersion(code, teamId))?.team || null;
 }
