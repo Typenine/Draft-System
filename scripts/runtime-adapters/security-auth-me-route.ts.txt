@@ -1,0 +1,16 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { verifyRequestSession } from '@/lib/auth-server';
+import { getDraftState } from '@/lib/store';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+export async function GET(req: NextRequest) {
+  const session = await verifyRequestSession(req);
+  if (!session) return NextResponse.json({ authenticated: false });
+  if (session.role === 'admin') return NextResponse.json({ authenticated: true, isAdmin: true, claims: {} });
+  const state = await getDraftState();
+  const team = state.teams.find((item) => item.id === session.teamId) || null;
+  if (!team) return NextResponse.json({ authenticated: false });
+  return NextResponse.json({ authenticated: true, isAdmin: false, claims: { team: team.name } });
+}
