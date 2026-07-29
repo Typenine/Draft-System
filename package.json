@@ -6,13 +6,13 @@
     "node": "24.x"
   },
   "scripts": {
-    "predev": "node scripts/materialize-parity-wrapper.mjs && node scripts/finalize-runtime-adapters.mjs && node scripts/finalize-completion-archive.mjs && node scripts/finalize-player-search-autopick.mjs",
+    "predev": "node scripts/materialize-parity-wrapper.mjs && node scripts/finalize-runtime-adapters.mjs && node scripts/finalize-completion-archive.mjs && node scripts/finalize-player-search-autopick.mjs && node scripts/finalize-security-reliability.mjs",
     "dev": "next dev",
-    "prebuild": "node scripts/materialize-parity-wrapper.mjs && node scripts/finalize-runtime-adapters.mjs && node scripts/finalize-completion-archive.mjs && node scripts/finalize-player-search-autopick.mjs",
+    "prebuild": "node scripts/materialize-parity-wrapper.mjs && node scripts/finalize-runtime-adapters.mjs && node scripts/finalize-completion-archive.mjs && node scripts/finalize-player-search-autopick.mjs && node scripts/finalize-security-reliability.mjs",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "pretypecheck": "node scripts/materialize-parity-wrapper.mjs && node scripts/finalize-runtime-adapters.mjs && node scripts/finalize-completion-archive.mjs && node scripts/finalize-player-search-autopick.mjs",
+    "pretypecheck": "node scripts/materialize-parity-wrapper.mjs && node scripts/finalize-runtime-adapters.mjs && node scripts/finalize-completion-archive.mjs && node scripts/finalize-player-search-autopick.mjs && node scripts/finalize-security-reliability.mjs",
     "posttypecheck": "node scripts/verify-runtime-parity.mjs"
   },
   "dependencies": {
