@@ -43,12 +43,27 @@ draft = replaceRequired(
 );
 await save('src/lib/store/draft.ts', draft);
 
+let moderation = await text('src/lib/store/moderation.ts');
+moderation = replaceRequired(
+  moderation,
+  "export async function resetTrades(draftId?: string | null): Promise<void> {\n  await ensureSchema();\n  const sql = getSql();\n  const id = draftId || String((await activeDraftRow())?.id || '');\n  if (!id) return;\n  await sql`DELETE FROM draft_trades WHERE draft_id = ${id}`;\n}",
+  "export async function resetTrades(draftId?: string | null): Promise<void> {\n  await ensureSchema();\n  const sql = getSql();\n  const id = draftId || String((await activeDraftRow())?.id || '');\n  if (!id) return;\n\n  const teamRows = rowsOf<Row>(await sql`SELECT id, name FROM draft_teams`);\n  const teamByName = new Map(teamRows.map((team) => [String(team.name), String(team.id)]));\n  const approvedTrades = rowsOf<Row>(await sql`\n    SELECT id FROM draft_trades\n    WHERE draft_id = ${id} AND status = 'approved'\n    ORDER BY updated_at DESC, id DESC\n  `);\n\n  for (const trade of approvedTrades) {\n    const assets = rowsOf<Row>(await sql`SELECT * FROM draft_trade_assets WHERE trade_id = ${String(trade.id)} ORDER BY id DESC`);\n    for (const asset of assets) {\n      const fromTeamId = teamByName.get(String(asset.from_team));\n      const toTeamId = teamByName.get(String(asset.to_team));\n      if (!fromTeamId || !toTeamId) continue;\n      const assetType = String(asset.asset_type);\n      if (assetType === 'current_pick') {\n        const overall = int(asset.pick_overall);\n        if (overall) {\n          await sql`\n            UPDATE draft_slots SET team_id = ${fromTeamId}\n            WHERE draft_id = ${id} AND overall = ${overall} AND team_id = ${toTeamId}\n          `;\n        }\n      } else if (assetType === 'future_pick') {\n        const year = int(asset.pick_year);\n        const round = int(asset.pick_round);\n        const originalTeamId = teamByName.get(String(asset.pick_original_team || asset.from_team));\n        if (year && round && originalTeamId) {\n          await sql`\n            UPDATE draft_future_picks SET owner_team_id = ${fromTeamId}\n            WHERE draft_id = ${id} AND pick_year = ${year} AND pick_round = ${round}\n              AND original_team_id = ${originalTeamId} AND owner_team_id = ${toTeamId}\n          `;\n        }\n      } else if (assetType === 'player' && asset.player_id) {\n        await sql`\n          UPDATE draft_roster_ownership SET owner_team_id = ${fromTeamId}, acquired_at = now()\n          WHERE draft_id = ${id} AND player_id = ${String(asset.player_id)} AND owner_team_id = ${toTeamId}\n        `;\n      }\n    }\n  }\n\n  await sql`DELETE FROM draft_trades WHERE draft_id = ${id}`;\n}",
+  'trade ownership reset',
+);
+await save('src/lib/store/moderation.ts', moderation);
+
 let admin = await text('src/lib/store/admin.ts');
 admin = replaceRequired(
   admin,
   "  if (normalizedAction === 'update_branding') {",
   "  if (normalizedAction === 'set_auto_pick') {\n    const enabled = body.enabled !== false && body.enabled !== 'false';\n    await sql`UPDATE draft_settings SET auto_pick_enabled = ${enabled}, updated_at = now() WHERE id = 1`;\n    return;\n  }\n  if (normalizedAction === 'update_branding') {",
   'commissioner auto-pick action',
+);
+admin = replaceRequired(
+  admin,
+  "  if (normalizedAction === 'reset') {\n    await sql`DELETE FROM draft_pending_picks WHERE draft_id = ${draftId}`;\n    await sql`DELETE FROM draft_picks WHERE draft_id = ${draftId}`;\n    await sql`DELETE FROM draft_roster_ownership WHERE draft_id = ${draftId}`;\n    await sql`DELETE FROM draft_queues WHERE draft_id = ${draftId}`;\n    await sql`UPDATE draft_trades SET animation_pending = false, resume_after_animation = false WHERE draft_id = ${draftId}`;",
+  "  if (normalizedAction === 'reset') {\n    await resetTrades(draftId);\n    await sql`DELETE FROM draft_pending_picks WHERE draft_id = ${draftId}`;\n    await sql`DELETE FROM draft_picks WHERE draft_id = ${draftId}`;\n    await sql`DELETE FROM draft_roster_ownership WHERE draft_id = ${draftId}`;\n    await sql`DELETE FROM draft_queues WHERE draft_id = ${draftId}`;",
+  'full draft trade reset',
 );
 await save('src/lib/store/admin.ts', admin);
 
@@ -136,7 +151,9 @@ await save('src/app/admin-enhancements.css', css);
 const required = [
   ['src/lib/db.ts', db, 'auto_pick_enabled boolean'],
   ['src/lib/store/draft.ts', draft, "pause_reason = 'clock_expired'"],
+  ['src/lib/store/moderation.ts', moderation, 'ORDER BY updated_at DESC, id DESC'],
   ['src/lib/store/admin.ts', admin, "normalizedAction === 'set_auto_pick'"],
+  ['src/lib/store/admin.ts', admin, "if (normalizedAction === 'reset') {\n    await resetTrades(draftId);"],
   ['src/app/api/draft/route.ts', route, "'set_auto_pick'"],
   ['src/app/commissioner/page.tsx', commissioner, 'PlayerSearchPicker'],
   ['src/app/commissioner/page.tsx', commissioner, 'Clock-expiration auto-pick'],
@@ -145,4 +162,4 @@ const required = [
 ];
 for (const [path, source, marker] of required) if (!source.includes(marker)) throw new Error(`[player-search-autopick] ${path} is missing ${marker}`);
 if (commissioner.includes('<label>Available player<select') || media.includes('<label>Player<select')) throw new Error('[player-search-autopick] A full player dropdown remains in commissioner tools.');
-console.log('[player-search-autopick] Searchable player selection and global/team auto-pick controls are materialized.');
+console.log('[player-search-autopick] Player browser, trade-safe reset, and global/team auto-pick controls are materialized.');
