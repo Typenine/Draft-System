@@ -1,0 +1,107 @@
+'use client';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { DraftState } from '@/lib/types';
+
+const emptyState: DraftState = {
+  configured: false,
+  draft: null,
+  teams: [],
+  players: [],
+  slots: [],
+  picks: [],
+  currentTeam: null,
+  availablePlayers: [],
+};
+
+type LiveStatePayload = Partial<DraftState> & { revision?: string };
+
+function mergeLiveState(previous: DraftState, incoming: LiveStatePayload): DraftState {
+  if (incoming.configured === false) return { ...emptyState, ...incoming } as DraftState;
+  const next = { ...previous, ...incoming, players: previous.players } as DraftState;
+  const pickedIds = new Set((next.picks || []).map((pick) => pick.playerId));
+  if (next.pendingPick?.playerId) pickedIds.add(next.pendingPick.playerId);
+  next.availablePlayers = previous.players.filter((player) => !pickedIds.has(player.id));
+  return next;
+}
+
+export function useDraftState(intervalMs = 1500) {
+  const [state, setState] = useState<DraftState>(emptyState);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const requestSeqRef = useRef(0);
+
+  const refresh = useCallback(async () => {
+    const seq = ++requestSeqRef.current;
+    try {
+      const response = await fetch('/api/state', { cache: 'no-store' });
+      const data = await response.json() as DraftState & { revision?: string; error?: string };
+      if (seq !== requestSeqRef.current) return;
+      setState(data);
+      setError(response.ok ? null : String(data.error || 'Unable to load draft state.'));
+    } catch {
+      if (seq === requestSeqRef.current) setError('Unable to reach the draft server.');
+    } finally {
+      if (seq === requestSeqRef.current) setLoading(false);
+    }
+  }, []);
+
+  const refreshLive = useCallback(async () => {
+    const seq = ++requestSeqRef.current;
+    try {
+      const response = await fetch('/api/state?mode=live', { cache: 'no-store' });
+      const data = await response.json() as LiveStatePayload & { error?: string };
+      if (seq !== requestSeqRef.current) return;
+      if (!response.ok) {
+        setError(String(data.error || 'Unable to load live draft state.'));
+        return;
+      }
+      setState((previous) => mergeLiveState(previous, data));
+      setError(null);
+    } catch {
+      if (seq === requestSeqRef.current) setError('Unable to reach the draft server.');
+    }
+  }, []);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  useEffect(() => {
+    if (!intervalMs) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    const schedule = () => {
+      if (cancelled || document.hidden) return;
+      const status = state.draft?.status;
+      const delay = status === 'LIVE'
+        ? Math.max(900, intervalMs)
+        : status === 'PAUSED'
+          ? 2200
+          : status === 'COMPLETED'
+            ? 10000
+            : 5000;
+      timer = window.setTimeout(async () => {
+        await refreshLive();
+        schedule();
+      }, delay + Math.floor(Math.random() * 250));
+    };
+
+    const onVisibility = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = null;
+      if (!document.hidden) {
+        void refreshLive().finally(schedule);
+      }
+    };
+
+    schedule();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [intervalMs, refreshLive, state.draft?.status]);
+
+  return { state, loading, error, refresh };
+}
