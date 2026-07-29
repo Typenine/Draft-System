@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - fix/polling-animation-layout
+  pull_request:
+    branches:
+      - main
 
 jobs:
   audit:
