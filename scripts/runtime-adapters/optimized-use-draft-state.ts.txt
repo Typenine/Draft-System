@@ -29,29 +29,30 @@ export function useDraftState(intervalMs = 1500) {
   const [state, setState] = useState<DraftState>(emptyState);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const requestSeqRef = useRef(0);
+  const fullSeqRef = useRef(0);
+  const liveSeqRef = useRef(0);
 
   const refresh = useCallback(async () => {
-    const seq = ++requestSeqRef.current;
+    const seq = ++fullSeqRef.current;
     try {
       const response = await fetch('/api/state', { cache: 'no-store' });
       const data = await response.json() as DraftState & { revision?: string; error?: string };
-      if (seq !== requestSeqRef.current) return;
+      if (seq !== fullSeqRef.current) return;
       setState(data);
       setError(response.ok ? null : String(data.error || 'Unable to load draft state.'));
     } catch {
-      if (seq === requestSeqRef.current) setError('Unable to reach the draft server.');
+      if (seq === fullSeqRef.current) setError('Unable to reach the draft server.');
     } finally {
-      if (seq === requestSeqRef.current) setLoading(false);
+      if (seq === fullSeqRef.current) setLoading(false);
     }
   }, []);
 
   const refreshLive = useCallback(async () => {
-    const seq = ++requestSeqRef.current;
+    const seq = ++liveSeqRef.current;
     try {
       const response = await fetch('/api/state?mode=live', { cache: 'no-store' });
       const data = await response.json() as LiveStatePayload & { error?: string };
-      if (seq !== requestSeqRef.current) return;
+      if (seq !== liveSeqRef.current) return;
       if (!response.ok) {
         setError(String(data.error || 'Unable to load live draft state.'));
         return;
@@ -59,7 +60,7 @@ export function useDraftState(intervalMs = 1500) {
       setState((previous) => mergeLiveState(previous, data));
       setError(null);
     } catch {
-      if (seq === requestSeqRef.current) setError('Unable to reach the draft server.');
+      if (seq === liveSeqRef.current) setError('Unable to reach the draft server.');
     }
   }, []);
 
