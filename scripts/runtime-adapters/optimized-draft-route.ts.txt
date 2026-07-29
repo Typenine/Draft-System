@@ -1,0 +1,133 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getDraftLiveState, getDraftState, getTeamQueue, runAdminAction, setTeamQueue, submitPick } from '@/lib/store';
+import { verifyRequestSession } from '@/lib/auth-server';
+import { activePresence, legacyTeams, remainingSeconds, sessionTeam, toLegacyDraftState, touchPresence } from '@/lib/draft-compat';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+function noStore(data: unknown, status = 200) {
+  return NextResponse.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
+}
+function playerView(player: { id:string; name:string; position:string; proTeam:string|null; college:string|null }) {
+  return { id: player.id, name: player.name, pos: player.position, nfl: player.proTeam || '', college: player.college || null };
+}
+function pendingPickView(state: Awaited<ReturnType<typeof getDraftState>>) {
+  const pending = state.pendingPick;
+  if (!pending) return null;
+  return {
+    id: pending.id,
+    draftId: pending.draftId,
+    overall: pending.overall,
+    team: pending.teamName,
+    playerId: pending.playerId,
+    playerName: pending.playerName,
+    playerPos: pending.playerPosition,
+    playerNfl: pending.playerProTeam,
+    submittedAt: pending.submittedAt,
+  };
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const liveMode = req.nextUrl.searchParams.get('mode') === 'live';
+    const [state, session] = await Promise.all([liveMode ? getDraftLiveState() : getDraftState(), verifyRequestSession(req)]);
+    const action = req.nextUrl.searchParams.get('action');
+    if (action === 'player_info') {
+      const player = state.players.find((item) => item.id === req.nextUrl.searchParams.get('playerId'));
+      return noStore(player ? { college: player.college, name: player.name, pos: player.position, nfl: player.proTeam } : {});
+    }
+    const draft = await toLegacyDraftState(state);
+    const remainingSec = remainingSeconds(state);
+    const canSeePending = session?.role === 'admin' || (session?.role === 'team' && state.pendingPick?.teamId === session.teamId);
+    const pendingPick = canSeePending ? pendingPickView(state) : null;
+    const revision = 'revision' in state && typeof state.revision === 'string'
+      ? state.revision
+      : `${draft?.status || 'NONE'}:${draft?.curOverall || 0}:${state.picks.length}:${pendingPick?.id || ''}`;
+    if (liveMode) {
+      return noStore({ live: draft, remainingSec, pendingPick, revision, teams: legacyTeams(state), activeViewers: session ? activePresence() : [] });
+    }
+    return noStore({
+      draft,
+      remainingSec,
+      pendingPick,
+      available: session && req.nextUrl.searchParams.get('include') === 'available' ? state.availablePlayers.map(playerView) : undefined,
+      usingCustom: true,
+      autoPickEnabled: state.autoPickEnabled !== false,
+      revision,
+      activeViewers: session ? activePresence() : [],
+      teams: legacyTeams(state),
+    });
+  } catch (error) {
+    return noStore({ error: error instanceof Error ? error.message : 'draft_load_failed' }, 500);
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json() as Record<string, unknown>;
+    const action = String(body.action || '');
+    const requestedTeam = body.team ? String(body.team) : null;
+    const identity = await sessionTeam(req, requestedTeam);
+    if (!identity) return noStore({ error: 'authentication_required' }, 403);
+    if (action === 'presence') return noStore({ ok: true, activeViewers: touchPresence(identity.team?.name || (identity.sessionRole === 'admin' ? 'Admin' : 'Viewer')) });
+    const state = await getDraftState();
+
+    if (action === 'available') {
+      const query = String(body.q || '').toLowerCase();
+      const pos = String(body.pos || '').toUpperCase();
+      const limit = Math.min(500, Math.max(1, Number(body.limit || 100)));
+      const available = state.availablePlayers.filter((player) => (!query || `${player.name} ${player.position} ${player.proTeam || ''} ${player.college || ''}`.toLowerCase().includes(query)) && (!pos || player.position === pos)).slice(0, limit).map(playerView);
+      return noStore({ available });
+    }
+    if (action === 'queue_get') {
+      const team = identity.team || (identity.sessionRole === 'admin' ? state.currentTeam : null);
+      if (!team) return noStore({ queue: [] });
+      return noStore({ queue: (await getTeamQueue(team.id)).map(playerView) });
+    }
+    if (action === 'queue_set') {
+      const team = identity.team || (identity.sessionRole === 'admin' ? state.currentTeam : null);
+      if (!team) return noStore({ error: 'team_required' }, 400);
+      const players = Array.isArray(body.players) ? body.players as Array<{ id?: string; playerId?: string }> : [];
+      const ids = players.map((item) => String(item.id || item.playerId || '')).filter(Boolean);
+      return noStore({ queue: (await setTeamQueue(team.id, ids)).map(playerView) });
+    }
+    if (action === 'pick') {
+      const team = identity.team || (identity.sessionRole === 'admin' ? state.currentTeam : null);
+      if (!team) return noStore({ error: 'team_required' }, 400);
+      const ok = await submitPick(team.id, String(body.playerId || ''));
+      return ok ? noStore({ ok: true, pending: true }) : noStore({ error: 'pick_submit_failed' }, 409);
+    }
+
+    const animationActions: Record<string, string> = {
+      anim_clock_start: 'finish_pick_animation',
+      trade_anim_complete: 'finish_trade_animation',
+      end_draft_anim_complete: 'finish_end_draft_animation',
+    };
+    if (animationActions[action]) {
+      if (identity.sessionRole !== 'admin') return noStore({ error: 'commissioner_required' }, 403);
+      if (action === 'anim_clock_start') {
+        const legacy = await toLegacyDraftState(await getDraftState());
+        if (!legacy?.roundEndPause) await runAdminAction(animationActions[action], body);
+      } else {
+        await runAdminAction(animationActions[action], body);
+      }
+      return noStore({ ok: true });
+    }
+
+    const adminActions = new Set([
+      'start','resume','pause','reset','undo','skip','skip_pick','force_pick','auto_pick','set_auto_pick',
+      'set_slot','update_slot','set_clock','reset_clock','replace_players','upload_players','clear_players',
+      'create','delete','update_branding','approve_pick','reject_pick','approve_trade','reject_trade',
+      'reset_trades','repair_state','update_setup','activate_draft',
+    ]);
+    if (adminActions.has(action)) {
+      if (identity.sessionRole !== 'admin') return noStore({ error: 'commissioner_required' }, 403);
+      await runAdminAction(action, body);
+      return noStore({ ok: true });
+    }
+    return noStore({ error: 'unknown_action' }, 400);
+  } catch (error) {
+    return noStore({ error: error instanceof Error ? error.message : 'draft_action_failed' }, 400);
+  }
+}
