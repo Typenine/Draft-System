@@ -1,0 +1,84 @@
+import { createHmac, timingSafeEqual } from 'crypto';
+import type { NextRequest } from 'next/server';
+import { readSessionToken, SESSION_COOKIE } from './auth';
+import { ensureSchema, getSql } from './db';
+import type { Session } from './types';
+import { rowsOf, type Row } from './store/shared';
+
+const LOGIN_WINDOW_MINUTES = 10;
+const LOGIN_FAILURE_LIMIT = 5;
+const LOGIN_BLOCK_MINUTES = 15;
+
+function securitySecret(): string {
+  return process.env.SESSION_SECRET || process.env.DATABASE_URL || 'draft-system-local-development';
+}
+
+function hmac(value: string): string {
+  return createHmac('sha256', securitySecret()).update(value).digest('hex');
+}
+
+function clientAddress(req: NextRequest): string {
+  return (req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown').split(',')[0].trim();
+}
+
+export async function verifyRequestSession(req: NextRequest): Promise<Session | null> {
+  const session = readSessionToken(req.cookies.get(SESSION_COOKIE)?.value);
+  if (!session || !Number.isInteger(session.authVersion) || session.authVersion < 1) return null;
+  await ensureSchema();
+  const sql = getSql();
+  if (session.role === 'admin') {
+    const row = rowsOf<Row>(await sql`SELECT auth_version FROM draft_settings WHERE id = 1 LIMIT 1`)[0];
+    return row && Number(row.auth_version) === session.authVersion ? session : null;
+  }
+  const row = rowsOf<Row>(await sql`SELECT auth_version FROM draft_teams WHERE id = ${session.teamId} LIMIT 1`)[0];
+  return row && Number(row.auth_version) === session.authVersion ? session : null;
+}
+
+export function loginAttemptKey(req: NextRequest, scope: string): string {
+  return hmac(`${clientAddress(req)}|${scope}`);
+}
+
+export async function checkLoginRateLimit(keyHash: string): Promise<{ allowed: boolean; retryAfter: number }> {
+  await ensureSchema();
+  const row = rowsOf<Row>(await getSql()`SELECT blocked_until FROM draft_login_attempts WHERE key_hash = ${keyHash} LIMIT 1`)[0];
+  if (!row?.blocked_until) return { allowed: true, retryAfter: 0 };
+  const retryAfter = Math.max(0, Math.ceil((new Date(String(row.blocked_until)).getTime() - Date.now()) / 1000));
+  return { allowed: retryAfter === 0, retryAfter };
+}
+
+export async function recordLoginFailure(keyHash: string): Promise<void> {
+  await ensureSchema();
+  await getSql()`
+    INSERT INTO draft_login_attempts (key_hash, failure_count, window_started_at, blocked_until, updated_at)
+    VALUES (${keyHash}, 1, now(), NULL, now())
+    ON CONFLICT (key_hash) DO UPDATE SET
+      failure_count = CASE
+        WHEN draft_login_attempts.window_started_at < now() - (${LOGIN_WINDOW_MINUTES} * interval '1 minute') THEN 1
+        ELSE draft_login_attempts.failure_count + 1
+      END,
+      window_started_at = CASE
+        WHEN draft_login_attempts.window_started_at < now() - (${LOGIN_WINDOW_MINUTES} * interval '1 minute') THEN now()
+        ELSE draft_login_attempts.window_started_at
+      END,
+      blocked_until = CASE
+        WHEN draft_login_attempts.window_started_at < now() - (${LOGIN_WINDOW_MINUTES} * interval '1 minute') THEN NULL
+        WHEN draft_login_attempts.failure_count + 1 >= ${LOGIN_FAILURE_LIMIT} THEN now() + (${LOGIN_BLOCK_MINUTES} * interval '1 minute')
+        ELSE draft_login_attempts.blocked_until
+      END,
+      updated_at = now()
+  `;
+}
+
+export async function clearLoginFailures(keyHash: string): Promise<void> {
+  await ensureSchema();
+  await getSql()`DELETE FROM draft_login_attempts WHERE key_hash = ${keyHash}`;
+}
+
+export function setupSecretMatches(candidate: unknown): boolean {
+  const expected = process.env.SETUP_SECRET || process.env.SESSION_SECRET;
+  const supplied = typeof candidate === 'string' ? candidate.trim() : '';
+  if (!expected || !supplied) return false;
+  const left = Buffer.from(hmac(`setup:${expected}`), 'hex');
+  const right = Buffer.from(hmac(`setup:${supplied}`), 'hex');
+  return left.length === right.length && timingSafeEqual(left, right);
+}
