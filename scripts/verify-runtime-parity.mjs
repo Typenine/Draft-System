@@ -23,6 +23,7 @@ const boardRoute = await source('src/app/api/team-prospect-draftboard/route.ts')
 const compat = await source('src/lib/draft-compat.ts');
 const commissioner = await source('src/app/commissioner/page.tsx');
 const mediaPage = await source('src/app/commissioner/media/page.tsx');
+const playerPicker = await source('src/components/admin/PlayerSearchPicker.tsx');
 const archives = await source('src/app/archives/page.tsx');
 const archiveRoute = await source('src/app/api/archives/route.ts');
 const overlay = await source('src/components/draft-overlay/DraftOverlayLive.tsx');
@@ -36,6 +37,7 @@ requireMarkers('src/lib/db.ts', db, [
   'CREATE TABLE IF NOT EXISTS draft_future_picks',
   'CREATE TABLE IF NOT EXISTS draft_team_boards',
   'CREATE TABLE IF NOT EXISTS draft_player_media',
+  'auto_pick_enabled boolean NOT NULL DEFAULT true',
   "WHERE logo_url IS NULL OR btrim(logo_url) = ''",
 ]);
 requireMarkers('src/lib/store/draft.ts', draftStore, [
@@ -43,6 +45,8 @@ requireMarkers('src/lib/store/draft.ts', draftStore, [
   'approvePendingPick',
   'rejectPendingPick',
   "pause_reason = 'pick_animation'",
+  "pause_reason = 'clock_expired'",
+  'autoPickEnabled: settings.auto_pick_enabled !== false',
   'pendingTrades: await listModerationTrades',
   'draft_roster_ownership',
 ]);
@@ -52,6 +56,7 @@ requireMarkers('src/lib/store/admin.ts', adminStore, [
   "normalizedAction === 'finish_pick_animation'",
   "normalizedAction === 'finish_trade_animation'",
   "normalizedAction === 'force_pick'",
+  "normalizedAction === 'set_auto_pick'",
   "normalizedAction === 'undo'",
   "normalizedAction === 'skip'",
 ]);
@@ -72,6 +77,7 @@ requireMarkers('src/app/api/draft/route.ts', draftRoute, [
   "'queue_set'",
   "action === 'presence'",
   "'auto_pick'",
+  "'set_auto_pick'",
   "'repair_state'",
 ]);
 requireMarkers('src/app/api/draft/trade/route.ts', tradeRoute, [
@@ -122,11 +128,23 @@ requireMarkers('src/app/commissioner/page.tsx', commissioner, [
   'commissioner-event-logo',
   'Open team-view tester',
   'href="/commissioner/media"',
+  'PlayerSearchPicker',
+  'Clock-expiration auto-pick',
+  "action('set_auto_pick'",
 ]);
+if (commissioner.includes('<label>Available player<select')) throw new Error('[parity] Commissioner force-pick still renders every player in a select.');
 requireMarkers('src/app/commissioner/media/page.tsx', mediaPage, [
   'Player Media',
   '/api/draft/player-videos',
   'Save media',
+  'PlayerSearchPicker',
+]);
+if (mediaPage.includes('<label>Player<select')) throw new Error('[parity] Player media still renders every player in a select.');
+requireMarkers('src/components/admin/PlayerSearchPicker.tsx', playerPicker, [
+  'Search name, position, NFL team, college, rank, or ID',
+  'All positions',
+  'slice(0, 50)',
+  "event.key === 'ArrowDown'",
 ]);
 requireMarkers('src/app/archives/page.tsx', archives, [
   '/api/archives',
@@ -148,8 +166,9 @@ requireMarkers('src/app/draft/room/team/page.tsx', teamRoom, [
   'Pick Submitted — Awaiting Admin Approval',
   'DraftTradeCenter',
   'TeamProspectDraftboardCompact',
-  'Instant submit',
+  'Toggle auto-pick',
+  "' · Auto'",
   'My upcoming picks',
 ]);
 
-console.log('[parity] Standalone runtime preserves East v. West approvals, queues, trades, ownership, future assets, media, prospect boards, animations, archives, and commissioner recovery controls.');
+console.log('[parity] Standalone runtime preserves East v. West approvals, searchable players, queue auto-pick controls, clock-expiration settings, trades, ownership, media, animations, and archives.');
