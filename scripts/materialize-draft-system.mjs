@@ -11,6 +11,7 @@ const materializers = [
   'scripts/finalize-player-search-autopick.mjs',
   'scripts/finalize-security-reliability.mjs',
   'scripts/finalize-active-draft-recovery.mjs',
+  'scripts/finalize-full-reset-safety.mjs',
 ];
 
 if (process.env.CI && !force) {
