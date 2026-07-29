@@ -89,7 +89,7 @@ export function PlayerSearchPicker({ players, value, onChange, label = 'Player',
       .sort((a, b) => {
         if (sortMode === 'name') return a.player.name.localeCompare(b.player.name) || a.player.rank - b.player.rank;
         if (sortMode === 'position') return a.player.position.localeCompare(b.player.position) || a.player.rank - b.player.rank;
-        if (sortMode === 'relevance' && deferredQuery.trim() && b.score !== a.score) return b.score - a.score;
+        if (sortMode === 'relevance' && deferredQuery.trim() && b.score !== a.score) return (b.score ?? -1) - (a.score ?? -1);
         return a.player.rank - b.player.rank || a.player.name.localeCompare(b.player.name);
       })
       .map(({ player }) => player);
