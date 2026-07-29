@@ -1,0 +1,133 @@
+import type { NextRequest } from 'next/server';
+import { verifyRequestSession } from '@/lib/auth-server';
+import { eventLogoUrl } from '@/lib/branding';
+import { ensureSchema, getSql } from '@/lib/db';
+import { getDraftState } from '@/lib/store';
+import type { DraftState, Team } from '@/lib/types';
+
+const presence = new Map<string, number>();
+
+function stringList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value === 'string') {
+    try { const parsed = JSON.parse(value) as unknown; return Array.isArray(parsed) ? parsed.map(String) : []; } catch { return []; }
+  }
+  return [];
+}
+
+export function touchPresence(name: string): string[] {
+  const now = Date.now();
+  if (name) presence.set(name, now);
+  for (const [key, value] of presence) if (now - value > 30000) presence.delete(key);
+  return [...presence.keys()];
+}
+export function activePresence(): string[] { return touchPresence(''); }
+
+export async function sessionTeam(req: NextRequest, requestedName?: string | null): Promise<{ sessionRole: 'admin' | 'team'; team: Team | null } | null> {
+  const session = await verifyRequestSession(req);
+  if (!session) return null;
+  const state = await getDraftState();
+  if (session.role === 'admin') {
+    const requested = requestedName ? state.teams.find((team) => team.name === requestedName || team.id === requestedName) || null : null;
+    return { sessionRole: 'admin', team: requested };
+  }
+  return { sessionRole: 'team', team: state.teams.find((team) => team.id === session.teamId) || null };
+}
+
+export function remainingSeconds(state: DraftState): number | null {
+  if (!state.draft) return null;
+  if (state.draft.status === 'COMPLETED') return 0;
+  if (state.draft.status === 'PAUSED') return state.draft.pausedRemainingSeconds ?? state.draft.clockSeconds;
+  if (state.draft.status !== 'LIVE' || !state.draft.deadlineTs) return state.draft.clockSeconds;
+  return Math.max(0, Math.ceil((new Date(state.draft.deadlineTs).getTime() - Date.now()) / 1000));
+}
+
+function yearFromDraftName(name: string): number {
+  const match = name.match(/\b(20\d{2})\b/);
+  return match ? Number(match[1]) : new Date().getFullYear();
+}
+
+export async function pendingTradeAnimation(draftId: string | undefined) {
+  if (!draftId) return null;
+  await ensureSchema();
+  const sql = getSql();
+  const trades = await sql`
+    SELECT * FROM draft_trades
+    WHERE draft_id = ${draftId} AND status = 'approved' AND animation_pending = true
+    ORDER BY updated_at DESC LIMIT 1
+  ` as unknown as Array<Record<string, unknown>>;
+  const trade = trades[0];
+  if (!trade) return null;
+  const assets = await sql`SELECT * FROM draft_trade_assets WHERE trade_id = ${String(trade.id)} ORDER BY id` as unknown as Array<Record<string, unknown>>;
+  return {
+    tradeId: String(trade.id),
+    teams: stringList(trade.teams),
+    assets: assets.map((asset) => ({
+      fromTeam: String(asset.from_team), toTeam: String(asset.to_team), assetType: String(asset.asset_type),
+      playerName: asset.player_name ? String(asset.player_name) : null,
+      playerPos: asset.player_pos ? String(asset.player_pos) : null,
+      pickOverall: asset.pick_overall == null ? null : Number(asset.pick_overall),
+      pickYear: asset.pick_year == null ? null : Number(asset.pick_year),
+      pickRound: asset.pick_round == null ? null : Number(asset.pick_round),
+      pickOriginalTeam: asset.pick_original_team ? String(asset.pick_original_team) : null,
+    })),
+    resumeAfterAnimation: Boolean(trade.resume_after_animation),
+  };
+}
+
+export async function toLegacyDraftState(state: DraftState) {
+  const teamById = new Map(state.teams.map((team) => [team.id, team]));
+  const draft = state.draft;
+  if (!draft) return null;
+  const mappedPicks = state.picks.map((pick) => ({
+    overall: pick.overall,
+    round: pick.round,
+    team: teamById.get(pick.teamId)?.name || pick.teamId,
+    playerId: pick.playerId,
+    playerName: pick.playerName,
+    playerPos: pick.playerPosition,
+    playerNfl: pick.playerProTeam,
+    madeAt: pick.madeAt,
+  }));
+  const mappedSlots = state.slots.map((slot) => ({ overall: slot.overall, round: slot.round, team: teamById.get(slot.teamId)?.name || slot.teamId }));
+  const currentSlot = mappedSlots.find((slot) => slot.overall === draft.currentOverall);
+  const roundEndPause = Boolean(draft.status === 'PAUSED' && draft.pauseReason === 'round_end');
+  const endDraftPause = Boolean(draft.status === 'PAUSED' && draft.pauseReason === 'end_draft_animation');
+  const onClockTeam = draft.pauseReason === 'pick_animation' || draft.pauseReason === 'end_draft_animation'
+    ? null
+    : state.currentTeam?.name || currentSlot?.team || null;
+  return {
+    id: draft.id,
+    year: yearFromDraftName(draft.name),
+    rounds: draft.rounds,
+    clockSeconds: draft.clockSeconds,
+    status: draft.status,
+    curOverall: draft.currentOverall,
+    onClockTeam,
+    deadlineTs: draft.deadlineTs,
+    pausedRemainingSecs: draft.status === 'PAUSED' ? draft.pausedRemainingSeconds ?? draft.clockSeconds : null,
+    pauseReason: draft.pauseReason ?? null,
+    eventName: state.leagueName || draft.name,
+    eventLogoUrl: eventLogoUrl(state.branding?.logoUrl),
+    eventColor1: state.branding?.primaryColor || '#a4c810',
+    eventColor2: state.branding?.secondaryColor || '#111827',
+    recentPicks: mappedPicks.slice(-12),
+    allPicks: mappedPicks,
+    upcoming: mappedSlots.filter((slot) => slot.overall >= draft.currentOverall).slice(0, 24),
+    allSlots: mappedSlots,
+    roundEndPause,
+    endDraftPause,
+    pendingTradeAnimation: await pendingTradeAnimation(draft.id),
+  };
+}
+
+export function legacyTeams(state: DraftState) {
+  return state.teams.map((team) => ({
+    id: team.id,
+    name: team.name,
+    shortName: team.shortName,
+    primaryColor: team.primaryColor,
+    secondaryColor: team.secondaryColor,
+    logoUrl: team.logoUrl,
+  }));
+}
