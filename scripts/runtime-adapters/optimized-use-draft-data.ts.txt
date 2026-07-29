@@ -56,7 +56,7 @@ interface DraftPayload {
   remainingSec?: number | null;
   pendingPick?: PendingPick | null;
   activeViewers?: string[];
-  teams?: Array<Record<string, unknown>>;
+  teams?: unknown[];
   revision?: string;
 }
 
@@ -73,7 +73,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
   const requestSeqRef = useRef(0);
 
   const applyPayload = useCallback((json: DraftPayload, live = false) => {
-    if (Array.isArray(json.teams)) configureRuntimeTeams(json.teams);
+    if (Array.isArray(json.teams)) configureRuntimeTeams(json.teams as Parameters<typeof configureRuntimeTeams>[0]);
     const nextDraft = (live ? json.live : json.draft) ?? null;
     setDraft(nextDraft);
     if (Array.isArray(json.available)) setAvailable(json.available);
@@ -90,7 +90,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
       const response = await fetch('/api/draft?include=available', { cache: 'no-store' });
       if (!response.ok) return;
       const json = await response.json() as DraftPayload;
-      if (Array.isArray(json.teams)) configureRuntimeTeams(json.teams);
+      if (Array.isArray(json.teams)) configureRuntimeTeams(json.teams as Parameters<typeof configureRuntimeTeams>[0]);
       if (Array.isArray(json.available)) setAvailable(json.available);
       if (typeof json.usingCustom === 'boolean') setUsingCustom(json.usingCustom);
     } catch {
@@ -128,7 +128,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
   useEffect(() => { void fetchBootstrap(); }, [fetchBootstrap]);
 
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    let timer: number | null = null;
     let cancelled = false;
     const schedule = () => {
       if (cancelled || document.hidden) return;
