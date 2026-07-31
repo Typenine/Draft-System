@@ -13,6 +13,7 @@ const materializers = [
   'scripts/finalize-active-draft-recovery.mjs',
   'scripts/finalize-full-reset-safety.mjs',
   'scripts/finalize-polling-animation-layout.mjs',
+  'scripts/finalize-trade-animation-assets.mjs',
 ];
 
 if (process.env.CI && !force) {
