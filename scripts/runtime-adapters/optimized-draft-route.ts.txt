@@ -6,8 +6,19 @@ import { activePresence, legacyTeams, remainingSeconds, sessionTeam, toLegacyDra
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const ACTIVE_PAUSE_REASONS = new Set(['pending_pick', 'pick_animation', 'trade_animation', 'end_draft_animation', 'round_end']);
+
 function noStore(data: unknown, status = 200) {
-  return NextResponse.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
+  return NextResponse.json(data, { status, headers: { 'Cache-Control': 'private, no-store' } });
+}
+function cachedPublicState(data: unknown, session: unknown, draft: { status?: string | null; pauseReason?: string | null } | null) {
+  if (session) return noStore(data);
+  const active = draft?.status === 'LIVE'
+    || (draft?.status === 'PAUSED' && ACTIVE_PAUSE_REASONS.has(draft.pauseReason || ''));
+  const cacheControl = active
+    ? 'public, max-age=0, s-maxage=2, stale-while-revalidate=5'
+    : 'public, max-age=0, s-maxage=900, stale-while-revalidate=60';
+  return NextResponse.json(data, { headers: { 'Cache-Control': cacheControl } });
 }
 function playerView(player: { id:string; name:string; position:string; proTeam:string|null; college:string|null }) {
   return { id: player.id, name: player.name, pos: player.position, nfl: player.proTeam || '', college: player.college || null };
@@ -52,9 +63,9 @@ export async function GET(req: NextRequest) {
       ? state.revision
       : `${draft?.status || 'NONE'}:${draft?.curOverall || 0}:${state.picks.length}:${pendingPick?.id || ''}`;
     if (liveMode) {
-      return noStore({ live: draft, remainingSec, pendingPick, revision, teams: legacyTeams(state), activeViewers: session ? activePresence() : [] });
+      return cachedPublicState({ live: draft, remainingSec, pendingPick, revision, teams: legacyTeams(state), activeViewers: session ? activePresence() : [] }, session, draft);
     }
-    return noStore({
+    return cachedPublicState({
       draft,
       remainingSec,
       pendingPick,
@@ -64,7 +75,7 @@ export async function GET(req: NextRequest) {
       revision,
       activeViewers: session ? activePresence() : [],
       teams: legacyTeams(state),
-    });
+    }, session, draft);
   } catch (error) {
     return noStore({ error: error instanceof Error ? error.message : 'draft_load_failed' }, 500);
   }

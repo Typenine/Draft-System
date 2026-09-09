@@ -105,7 +105,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
 
   const fetchAvailable = useCallback(async () => {
     try {
-      const response = await fetch('/api/draft?include=available', { cache: 'no-store' });
+      const response = await fetch('/api/draft?include=available');
       if (!response.ok) return;
       const json = await response.json() as DraftPayload;
       if (Array.isArray(json.teams)) configureRuntimeTeams(json.teams as Parameters<typeof configureRuntimeTeams>[0]);
@@ -120,7 +120,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
   const fetchBootstrap = useCallback(async () => {
     const seq = ++requestSeqRef.current;
     try {
-      const response = await fetch('/api/draft?include=available', { cache: 'no-store' });
+      const response = await fetch('/api/draft?include=available');
       if (!response.ok) return;
       const json = await response.json() as DraftPayload;
       if (seq !== requestSeqRef.current) return;
@@ -134,7 +134,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
   const fetchLive = useCallback(async () => {
     const seq = ++requestSeqRef.current;
     try {
-      const response = await fetch('/api/draft?mode=live', { cache: 'no-store' });
+      const response = await fetch('/api/draft?mode=live');
       if (!response.ok) return;
       const json = await response.json() as DraftPayload;
       if (seq !== requestSeqRef.current) return;

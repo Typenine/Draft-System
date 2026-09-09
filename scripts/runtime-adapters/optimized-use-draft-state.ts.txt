@@ -61,7 +61,7 @@ export function useDraftState(intervalMs = 1500) {
   const refresh = useCallback(async () => {
     const seq = ++fullSeqRef.current;
     try {
-      const response = await fetch('/api/state', { cache: 'no-store' });
+      const response = await fetch('/api/state');
       const data = await response.json() as DraftState & { revision?: string; error?: string };
       if (seq !== fullSeqRef.current) return;
       setState(data);
@@ -76,7 +76,7 @@ export function useDraftState(intervalMs = 1500) {
   const refreshLive = useCallback(async () => {
     const seq = ++liveSeqRef.current;
     try {
-      const response = await fetch('/api/state?mode=live', { cache: 'no-store' });
+      const response = await fetch('/api/state?mode=live');
       const data = await response.json() as LiveStatePayload & { error?: string };
       if (seq !== liveSeqRef.current) return;
       if (!response.ok) {
