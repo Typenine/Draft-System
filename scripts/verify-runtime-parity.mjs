@@ -64,6 +64,9 @@ requireMarkers('src/app/api/state/route.ts', stateRoute, [
   "mode') === 'live",
   'const session = await verifyRequestSession(req)',
   'includeModeration: session?.role === \'admin\'',
+  's-maxage=900',
+  's-maxage=2',
+  'private, no-store',
 ]);
 requireMarkers('src/lib/store/shared.ts', shared, ['settings.active_draft_id', 'UPDATE draft_settings SET active_draft_id']);
 
@@ -113,6 +116,9 @@ requireMarkers('src/app/api/draft/route.ts', draftRoute, [
   "mode') === 'live",
   'Presence is cosmetic and process-local. It must never wake Neon on its own.',
   "if (action === 'presence')",
+  'cachedPublicState',
+  's-maxage=900',
+  's-maxage=2',
   "anim_clock_start: 'finish_pick_animation'",
   "trade_anim_complete: 'finish_trade_animation'",
   "end_draft_anim_complete: 'finish_end_draft_animation'",
@@ -187,6 +193,8 @@ requireMarkers('src/components/useDraftState.ts', stateHook, [
   'document.hidden',
 ]);
 if (stateHook.includes('window.setInterval(() => void refresh()')) throw new Error('[parity] Constant full-state interval polling returned.');
+if (stateHook.includes("fetch('/api/state', { cache: 'no-store' })")) throw new Error('[parity] Anonymous landing state is forcing cache bypass.');
+if (overlayData.includes("fetch('/api/draft?mode=live', { cache: 'no-store' })")) throw new Error('[parity] Anonymous overlay state is forcing cache bypass.');
 if (overlayData.includes('void fetchAvailable();\n      } else if (nextPickCount > previousPickCount) {\n        void fetchAvailable();')) throw new Error('[parity] Player pool is being fully refetched after every pick.');
 requireMarkers('src/components/draft-overlay/EndOfRoundAnimation.tsx', endRound, ['Seattle 26']);
 requireMarkers('src/components/draft-overlay/StartOfRoundAnimation.tsx', startRound, ['Seattle 26']);
@@ -194,4 +202,4 @@ requireMarkers('src/app/admin-enhancements.css', adminCss, ['grid-template-areas
 requireMarkers('src/app/draft/room/team/page.tsx', teamRoom, ['Admin mode — view as team', 'Pick Submitted — Awaiting Admin Approval', 'DraftTradeCenter', 'Toggle auto-pick']);
 requireMarkers('src/app/page.tsx', homepage, ['Deployment setup key', 'SETUP_SECRET']);
 
-console.log('[parity] Standalone runtime preserves East v. West draft functionality with protected pending data, commissioner-only transitions, transactional trades/resets, explicit active drafts, free-tier live polling, reliable final animations, Seattle 2026 branding, keyed setup, revocable sessions, auto-pick, media, and archives.');
+console.log('[parity] Standalone runtime preserves East v. West draft functionality with protected pending data, commissioner-only transitions, transactional trades/resets, explicit active drafts, free-tier live polling, idle public caching, reliable final animations, Seattle 2026 branding, keyed setup, revocable sessions, auto-pick, media, and archives.');
