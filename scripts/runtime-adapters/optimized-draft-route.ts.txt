@@ -27,11 +27,18 @@ function pendingPickView(state: Awaited<ReturnType<typeof getDraftState>>) {
     submittedAt: pending.submittedAt,
   };
 }
+function presenceLabel(value: unknown): string {
+  const cleaned = String(value || 'Viewer').replace(/[^a-zA-Z0-9 ._'’-]/g, '').trim().slice(0, 40);
+  return cleaned || 'Viewer';
+}
 
 export async function GET(req: NextRequest) {
   try {
     const liveMode = req.nextUrl.searchParams.get('mode') === 'live';
-    const [state, session] = await Promise.all([liveMode ? getDraftLiveState() : getDraftState(), verifyRequestSession(req)]);
+    const session = await verifyRequestSession(req);
+    const state = liveMode || !session
+      ? await getDraftLiveState({ includeModeration: false })
+      : await getDraftState();
     const action = req.nextUrl.searchParams.get('action');
     if (action === 'player_info') {
       const player = state.players.find((item) => item.id === req.nextUrl.searchParams.get('playerId'));
@@ -68,12 +75,17 @@ export async function POST(req: NextRequest) {
     const body = await req.json() as Record<string, unknown>;
     const action = String(body.action || '');
     const requestedTeam = body.team ? String(body.team) : null;
+
+    // Presence is cosmetic and process-local. It must never wake Neon on its own.
+    if (action === 'presence') {
+      return noStore({ ok: true, activeViewers: touchPresence(presenceLabel(requestedTeam)) });
+    }
+
     const identity = await sessionTeam(req, requestedTeam);
     if (!identity) return noStore({ error: 'authentication_required' }, 403);
-    if (action === 'presence') return noStore({ ok: true, activeViewers: touchPresence(identity.team?.name || (identity.sessionRole === 'admin' ? 'Admin' : 'Viewer')) });
-    const state = await getDraftState();
 
     if (action === 'available') {
+      const state = await getDraftState();
       const query = String(body.q || '').toLowerCase();
       const pos = String(body.pos || '').toUpperCase();
       const limit = Math.min(500, Math.max(1, Number(body.limit || 100)));
@@ -81,19 +93,22 @@ export async function POST(req: NextRequest) {
       return noStore({ available });
     }
     if (action === 'queue_get') {
-      const team = identity.team || (identity.sessionRole === 'admin' ? state.currentTeam : null);
+      let team = identity.team;
+      if (!team && identity.sessionRole === 'admin') team = (await getDraftLiveState()).currentTeam;
       if (!team) return noStore({ queue: [] });
       return noStore({ queue: (await getTeamQueue(team.id)).map(playerView) });
     }
     if (action === 'queue_set') {
-      const team = identity.team || (identity.sessionRole === 'admin' ? state.currentTeam : null);
+      let team = identity.team;
+      if (!team && identity.sessionRole === 'admin') team = (await getDraftLiveState()).currentTeam;
       if (!team) return noStore({ error: 'team_required' }, 400);
       const players = Array.isArray(body.players) ? body.players as Array<{ id?: string; playerId?: string }> : [];
       const ids = players.map((item) => String(item.id || item.playerId || '')).filter(Boolean);
       return noStore({ queue: (await setTeamQueue(team.id, ids)).map(playerView) });
     }
     if (action === 'pick') {
-      const team = identity.team || (identity.sessionRole === 'admin' ? state.currentTeam : null);
+      let team = identity.team;
+      if (!team && identity.sessionRole === 'admin') team = (await getDraftLiveState()).currentTeam;
       if (!team) return noStore({ error: 'team_required' }, 400);
       const ok = await submitPick(team.id, String(body.playerId || ''));
       return ok ? noStore({ ok: true, pending: true }) : noStore({ error: 'pick_submit_failed' }, 409);
@@ -107,7 +122,7 @@ export async function POST(req: NextRequest) {
     if (animationActions[action]) {
       if (identity.sessionRole !== 'admin') return noStore({ error: 'commissioner_required' }, 403);
       if (action === 'anim_clock_start') {
-        const legacy = await toLegacyDraftState(await getDraftState());
+        const legacy = await toLegacyDraftState(await getDraftLiveState());
         if (!legacy?.roundEndPause) await runAdminAction(animationActions[action], body);
       } else {
         await runAdminAction(animationActions[action], body);

@@ -23,23 +23,25 @@ export async function GET(req: NextRequest) {
   }
   try {
     const liveMode = req.nextUrl.searchParams.get('mode') === 'live';
-    const [state, session] = await Promise.all([
-      liveMode ? getDraftLiveState() : getDraftState(),
-      verifyRequestSession(req),
-    ]);
+    const session = await verifyRequestSession(req);
+    // Anonymous callers only get the lightweight state. The expensive player pool
+    // and available-player calculation are reserved for authenticated draft users.
+    const state = liveMode || !session
+      ? await getDraftLiveState({ includeModeration: session?.role === 'admin' })
+      : await getDraftState();
     const ownPendingPick = session?.role === 'team' && state.pendingPick?.teamId === session.teamId ? state.pendingPick : null;
     const pendingPick = session?.role === 'admin' ? state.pendingPick : ownPendingPick;
     const pendingTrades = session?.role === 'admin' ? state.pendingTrades : [];
 
-    if (liveMode) {
+    if (liveMode || !session) {
       const { players: _players, availablePlayers: _availablePlayers, ...liveState } = state;
       return NextResponse.json({ ...liveState, pendingPick, pendingTrades }, { headers: { 'Cache-Control': 'no-store' } });
     }
-    if (session?.role === 'admin') return NextResponse.json(state, { headers: { 'Cache-Control': 'no-store' } });
+    if (session.role === 'admin') return NextResponse.json(state, { headers: { 'Cache-Control': 'no-store' } });
     return NextResponse.json({
       ...state,
-      players: session?.role === 'team' ? state.players : [],
-      availablePlayers: session?.role === 'team' ? state.availablePlayers : [],
+      players: state.players,
+      availablePlayers: state.availablePlayers,
       pendingPick,
       pendingTrades,
     }, { headers: { 'Cache-Control': 'no-store' } });
