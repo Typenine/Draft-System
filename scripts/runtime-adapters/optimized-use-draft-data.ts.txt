@@ -60,6 +60,23 @@ interface DraftPayload {
   revision?: string;
 }
 
+const MIN_LIVE_POLL_MS = 3000;
+const ACTIVE_PAUSE_POLL_MS = 3000;
+const ACTIVE_PAUSE_REASONS = new Set([
+  'pending_pick',
+  'pick_animation',
+  'trade_animation',
+  'end_draft_animation',
+  'round_end',
+]);
+
+function pollDelay(draft: DraftOverview | null, requestedMs: number): number | null {
+  if (!draft) return null;
+  if (draft.status === 'LIVE') return Math.max(MIN_LIVE_POLL_MS, requestedMs);
+  if (draft.status === 'PAUSED' && ACTIVE_PAUSE_REASONS.has(draft.pauseReason || '')) return ACTIVE_PAUSE_POLL_MS;
+  return null;
+}
+
 export function useDraftData(basePollIntervalMs = 1000) {
   const [draft, setDraft] = useState<DraftOverview | null>(null);
   const [available, setAvailable] = useState<AvailablePlayer[]>([]);
@@ -71,6 +88,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
   const lastSyncRef = useRef(Date.now());
   const revisionRef = useRef<string | null>(null);
   const requestSeqRef = useRef(0);
+  const lastPickCountRef = useRef(0);
 
   const applyPayload = useCallback((json: DraftPayload, live = false) => {
     if (Array.isArray(json.teams)) configureRuntimeTeams(json.teams as Parameters<typeof configureRuntimeTeams>[0]);
@@ -93,6 +111,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
       if (Array.isArray(json.teams)) configureRuntimeTeams(json.teams as Parameters<typeof configureRuntimeTeams>[0]);
       if (Array.isArray(json.available)) setAvailable(json.available);
       if (typeof json.usingCustom === 'boolean') setUsingCustom(json.usingCustom);
+      lastPickCountRef.current = json.draft?.allPicks?.length || 0;
     } catch {
       // Retain the previous available-player list.
     }
@@ -104,7 +123,9 @@ export function useDraftData(basePollIntervalMs = 1000) {
       const response = await fetch('/api/draft?include=available', { cache: 'no-store' });
       if (!response.ok) return;
       const json = await response.json() as DraftPayload;
-      if (seq === requestSeqRef.current) applyPayload(json, false);
+      if (seq !== requestSeqRef.current) return;
+      applyPayload(json, false);
+      lastPickCountRef.current = json.draft?.allPicks?.length || 0;
     } catch {
       // Keep the last valid frame on transient network errors.
     }
@@ -117,9 +138,18 @@ export function useDraftData(basePollIntervalMs = 1000) {
       if (!response.ok) return;
       const json = await response.json() as DraftPayload;
       if (seq !== requestSeqRef.current) return;
-      const previousRevision = revisionRef.current;
+      const nextPicks = json.live?.allPicks || [];
+      const nextPickCount = nextPicks.length;
+      const previousPickCount = lastPickCountRef.current;
       applyPayload(json, true);
-      if (json.revision && previousRevision && json.revision !== previousRevision) void fetchAvailable();
+
+      if (nextPickCount < previousPickCount) {
+        void fetchAvailable();
+      } else if (nextPickCount > previousPickCount) {
+        const pickedIds = new Set(nextPicks.map((pick) => pick.playerId));
+        setAvailable((players) => players.filter((player) => !pickedIds.has(player.id)));
+      }
+      lastPickCountRef.current = nextPickCount;
     } catch {
       // Keep the last valid frame on transient network errors.
     }
@@ -130,38 +160,40 @@ export function useDraftData(basePollIntervalMs = 1000) {
   useEffect(() => {
     let timer: number | null = null;
     let cancelled = false;
+
+    const clearTimer = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = null;
+    };
+
     const schedule = () => {
+      clearTimer();
       if (cancelled || document.hidden) return;
-      const animationPause = draft?.status === 'PAUSED' && ['pick_animation', 'trade_animation', 'end_draft_animation', 'round_end'].includes(draft.pauseReason || '');
-      const delay = draft?.status === 'LIVE'
-        ? Math.max(900, basePollIntervalMs)
-        : animationPause
-          ? 1000
-          : draft?.status === 'PAUSED'
-            ? 2500
-            : draft?.status === 'COMPLETED'
-              ? 10000
-              : 5000;
+      const delay = pollDelay(draft, basePollIntervalMs);
+      if (delay == null) return;
       timer = window.setTimeout(async () => {
         await fetchLive();
         schedule();
       }, delay + Math.floor(Math.random() * 250));
     };
+
     const visibility = () => {
-      if (timer) window.clearTimeout(timer);
-      timer = null;
+      clearTimer();
       if (!document.hidden) void fetchLive().finally(schedule);
     };
+
     schedule();
     document.addEventListener('visibilitychange', visibility);
     return () => {
       cancelled = true;
-      if (timer) window.clearTimeout(timer);
+      clearTimer();
       document.removeEventListener('visibilitychange', visibility);
     };
   }, [basePollIntervalMs, draft?.pauseReason, draft?.status, fetchLive]);
 
   useEffect(() => {
+    const delay = pollDelay(draft, basePollIntervalMs);
+    if (delay == null) return;
     const heartbeat = () => fetch('/api/draft', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ action: 'presence', team: 'Overlay' }),
@@ -169,9 +201,9 @@ export function useDraftData(basePollIntervalMs = 1000) {
       if (Array.isArray(json.activeViewers)) setActiveViewers(json.activeViewers);
     }).catch(() => {});
     heartbeat();
-    const id = window.setInterval(() => { if (!document.hidden) heartbeat(); }, 20000);
+    const id = window.setInterval(() => { if (!document.hidden) heartbeat(); }, 30000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [basePollIntervalMs, draft?.pauseReason, draft?.status]);
 
   useEffect(() => {
     if (draft?.status !== 'LIVE') return;
