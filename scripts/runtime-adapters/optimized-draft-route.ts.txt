@@ -35,7 +35,10 @@ function presenceLabel(value: unknown): string {
 export async function GET(req: NextRequest) {
   try {
     const liveMode = req.nextUrl.searchParams.get('mode') === 'live';
-    const [state, session] = await Promise.all([liveMode ? getDraftLiveState() : getDraftState(), verifyRequestSession(req)]);
+    const session = await verifyRequestSession(req);
+    const state = liveMode || !session
+      ? await getDraftLiveState({ includeModeration: false })
+      : await getDraftState();
     const action = req.nextUrl.searchParams.get('action');
     if (action === 'player_info') {
       const player = state.players.find((item) => item.id === req.nextUrl.searchParams.get('playerId'));
