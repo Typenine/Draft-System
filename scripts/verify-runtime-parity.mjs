@@ -57,7 +57,14 @@ requireMarkers('src/lib/auth.ts', auth, ['authVersion', 'hours = 24']);
 requireMarkers('src/lib/auth-server.ts', authServer, ['verifyRequestSession', 'recordLoginFailure', 'setupSecretMatches']);
 requireMarkers('src/app/api/auth/login/route.ts', loginRoute, ['checkLoginRateLimit', 'Retry-After', 'authenticateAdminWithVersion']);
 requireMarkers('src/app/api/setup/route.ts', setupRoute, ['setupSecretMatches', 'invalid_setup_key']);
-requireMarkers('src/app/api/state/route.ts', stateRoute, ['ownPendingPick', "session?.role === 'admin' ? state.pendingTrades : []", 'getDraftLiveState', "mode') === 'live"]);
+requireMarkers('src/app/api/state/route.ts', stateRoute, [
+  'ownPendingPick',
+  "session?.role === 'admin' ? state.pendingTrades : []",
+  'getDraftLiveState',
+  "mode') === 'live",
+  'const session = await verifyRequestSession(req)',
+  'includeModeration: session?.role === \'admin\'',
+]);
 requireMarkers('src/lib/store/shared.ts', shared, ['settings.active_draft_id', 'UPDATE draft_settings SET active_draft_id']);
 
 requireMarkers('src/lib/store/draft.ts', draftStore, [
@@ -73,7 +80,8 @@ requireMarkers('src/lib/store/draft.ts', draftStore, [
   'drafts: allDraftRows.map(mapDraft)',
   'activeDraftId: settings.active_draft_id',
   'options.activate',
-  'getDraftLiveState',
+  'getDraftLiveState(options:',
+  'options.includeModeration ? await listModerationTrades',
   'players: []',
 ]);
 requireMarkers('src/lib/store/admin.ts', adminStore, [
@@ -103,6 +111,8 @@ requireMarkers('src/app/api/draft/route.ts', draftRoute, [
   'canSeePending',
   'getDraftLiveState',
   "mode') === 'live",
+  'Presence is cosmetic and process-local. It must never wake Neon on its own.',
+  "if (action === 'presence')",
   "anim_clock_start: 'finish_pick_animation'",
   "trade_anim_complete: 'finish_trade_animation'",
   "end_draft_anim_complete: 'finish_end_draft_animation'",
@@ -128,7 +138,14 @@ requireMarkers('src/app/api/draft/team-roster/route.ts', rosterRoute, ['FROM dra
 requireMarkers('src/app/api/draft/player-videos/route.ts', mediaRoute, ['draft_player_media', 'verifyRequestSession', 'https_or_public_path']);
 requireMarkers('src/app/api/draft/player-image/route.ts', imageRoute, ['draft_player_media', 'NextResponse.redirect']);
 requireMarkers('src/app/api/team-prospect-draftboard/route.ts', boardRoute, ['draft_team_boards', 'orderIds', 'ON CONFLICT (team_id)']);
-requireMarkers('src/lib/draft-compat.ts', compat, ['verifyRequestSession', 'eventLogoUrl(state.branding?.logoUrl)', 'resumeAfterAnimation', 'endDraftPause']);
+requireMarkers('src/lib/draft-compat.ts', compat, [
+  'verifyRequestSession',
+  'FROM draft_teams WHERE id =',
+  "draft.pauseReason === 'trade_animation' ? await pendingTradeAnimation",
+  'eventLogoUrl(state.branding?.logoUrl)',
+  'resumeAfterAnimation',
+  'endDraftPause',
+]);
 requireMarkers('src/app/commissioner/page.tsx', commissioner, [
   'Pending approvals',
   "action('approve_pick')",
@@ -153,12 +170,28 @@ requireMarkers('src/components/draft-overlay/DraftOverlayLive.tsx', overlay, [
   "draft?.pauseReason !== 'pick_animation'",
   "draft?.pauseReason === 'end_draft_animation'",
 ]);
-requireMarkers('src/components/draft-overlay/useDraftData.ts', overlayData, ['/api/draft?mode=live', 'document.hidden', 'fetchAvailable']);
-requireMarkers('src/components/useDraftState.ts', stateHook, ['/api/state?mode=live', 'mergeLiveState', 'document.hidden']);
+requireMarkers('src/components/draft-overlay/useDraftData.ts', overlayData, [
+  '/api/draft?mode=live',
+  'MIN_LIVE_POLL_MS = 3000',
+  'ACTIVE_PAUSE_REASONS',
+  'if (delay == null) return',
+  'document.hidden',
+  'fetchAvailable',
+]);
+requireMarkers('src/components/useDraftState.ts', stateHook, [
+  '/api/state?mode=live',
+  'MIN_LIVE_POLL_MS = 3000',
+  'ACTIVE_PAUSE_REASONS',
+  'if (delay == null) return',
+  'mergeLiveState',
+  'document.hidden',
+]);
+if (stateHook.includes('window.setInterval(() => void refresh()')) throw new Error('[parity] Constant full-state interval polling returned.');
+if (overlayData.includes('void fetchAvailable();\n      } else if (nextPickCount > previousPickCount) {\n        void fetchAvailable();')) throw new Error('[parity] Player pool is being fully refetched after every pick.');
 requireMarkers('src/components/draft-overlay/EndOfRoundAnimation.tsx', endRound, ['Seattle 26']);
 requireMarkers('src/components/draft-overlay/StartOfRoundAnimation.tsx', startRound, ['Seattle 26']);
 requireMarkers('src/app/admin-enhancements.css', adminCss, ['grid-template-areas:', '.commissioner-player-panel', '.commissioner-draft-management-panel']);
 requireMarkers('src/app/draft/room/team/page.tsx', teamRoom, ['Admin mode — view as team', 'Pick Submitted — Awaiting Admin Approval', 'DraftTradeCenter', 'Toggle auto-pick']);
 requireMarkers('src/app/page.tsx', homepage, ['Deployment setup key', 'SETUP_SECRET']);
 
-console.log('[parity] Standalone runtime preserves East v. West draft functionality with protected pending data, commissioner-only transitions, transactional trades/resets, explicit active drafts, lightweight live polling, reliable final animations, Seattle 2026 branding, keyed setup, revocable sessions, auto-pick, media, and archives.');
+console.log('[parity] Standalone runtime preserves East v. West draft functionality with protected pending data, commissioner-only transitions, transactional trades/resets, explicit active drafts, free-tier live polling, reliable final animations, Seattle 2026 branding, keyed setup, revocable sessions, auto-pick, media, and archives.');
