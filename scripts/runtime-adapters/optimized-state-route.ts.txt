@@ -26,7 +26,9 @@ export async function GET(req: NextRequest) {
     const session = await verifyRequestSession(req);
     // Anonymous callers only get the lightweight state. The expensive player pool
     // and available-player calculation are reserved for authenticated draft users.
-    const state = liveMode || !session ? await getDraftLiveState() : await getDraftState();
+    const state = liveMode || !session
+      ? await getDraftLiveState({ includeModeration: session?.role === 'admin' })
+      : await getDraftState();
     const ownPendingPick = session?.role === 'team' && state.pendingPick?.teamId === session.teamId ? state.pendingPick : null;
     const pendingPick = session?.role === 'admin' ? state.pendingPick : ownPendingPick;
     const pendingTrades = session?.role === 'admin' ? state.pendingTrades : [];
