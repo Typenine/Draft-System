@@ -14,6 +14,7 @@ const materializers = [
   'scripts/finalize-full-reset-safety.mjs',
   'scripts/finalize-polling-animation-layout.mjs',
   'scripts/finalize-trade-animation-assets.mjs',
+  'scripts/finalize-free-neon-runtime.mjs',
 ];
 
 if (process.env.CI && !force) {
