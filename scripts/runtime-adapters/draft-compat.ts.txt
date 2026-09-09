@@ -2,10 +2,11 @@ import type { NextRequest } from 'next/server';
 import { verifyRequestSession } from '@/lib/auth-server';
 import { eventLogoUrl } from '@/lib/branding';
 import { ensureSchema, getSql } from '@/lib/db';
-import { getDraftState } from '@/lib/store';
 import type { DraftState, Team } from '@/lib/types';
 
 const presence = new Map<string, number>();
+
+type TeamRow = Record<string, unknown>;
 
 function stringList(value: unknown): string[] {
   if (Array.isArray(value)) return value.map(String);
@@ -15,10 +16,23 @@ function stringList(value: unknown): string[] {
   return [];
 }
 
+function mapTeamRow(row: TeamRow | undefined): Team | null {
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    shortName: String(row.short_name),
+    primaryColor: String(row.primary_color),
+    secondaryColor: String(row.secondary_color),
+    logoUrl: row.logo_url ? String(row.logo_url) : null,
+    sortOrder: Number(row.sort_order || 0),
+  };
+}
+
 export function touchPresence(name: string): string[] {
   const now = Date.now();
   if (name) presence.set(name, now);
-  for (const [key, value] of presence) if (now - value > 30000) presence.delete(key);
+  for (const [key, value] of presence) if (now - value > 45000) presence.delete(key);
   return [...presence.keys()];
 }
 export function activePresence(): string[] { return touchPresence(''); }
@@ -26,12 +40,23 @@ export function activePresence(): string[] { return touchPresence(''); }
 export async function sessionTeam(req: NextRequest, requestedName?: string | null): Promise<{ sessionRole: 'admin' | 'team'; team: Team | null } | null> {
   const session = await verifyRequestSession(req);
   if (!session) return null;
-  const state = await getDraftState();
+  if (session.role === 'admin' && !requestedName) return { sessionRole: 'admin', team: null };
+
+  await ensureSchema();
+  const sql = getSql();
   if (session.role === 'admin') {
-    const requested = requestedName ? state.teams.find((team) => team.name === requestedName || team.id === requestedName) || null : null;
-    return { sessionRole: 'admin', team: requested };
+    const rows = await sql`
+      SELECT id, name, short_name, primary_color, secondary_color, logo_url, sort_order
+      FROM draft_teams WHERE id = ${requestedName || ''} OR name = ${requestedName || ''}
+      ORDER BY sort_order LIMIT 1
+    ` as unknown as TeamRow[];
+    return { sessionRole: 'admin', team: mapTeamRow(rows[0]) };
   }
-  return { sessionRole: 'team', team: state.teams.find((team) => team.id === session.teamId) || null };
+  const rows = await sql`
+    SELECT id, name, short_name, primary_color, secondary_color, logo_url, sort_order
+    FROM draft_teams WHERE id = ${session.teamId} LIMIT 1
+  ` as unknown as TeamRow[];
+  return { sessionRole: 'team', team: mapTeamRow(rows[0]) };
 }
 
 export function remainingSeconds(state: DraftState): number | null {
@@ -96,6 +121,7 @@ export async function toLegacyDraftState(state: DraftState) {
     draft.status === 'PAUSED' && draft.pauseReason === 'pick_animation' && lastPick && currentSlot && lastPick.round < currentSlot.round,
   );
   const onClockTeam = draft.pauseReason === 'pick_animation' ? null : state.currentTeam?.name || currentSlot?.team || null;
+  const tradeAnimation = draft.pauseReason === 'trade_animation' ? await pendingTradeAnimation(draft.id) : null;
   return {
     id: draft.id,
     year: yearFromDraftName(draft.name),
@@ -116,7 +142,7 @@ export async function toLegacyDraftState(state: DraftState) {
     upcoming: mappedSlots.filter((slot) => slot.overall >= draft.currentOverall).slice(0, 24),
     allSlots: mappedSlots,
     roundEndPause,
-    pendingTradeAnimation: await pendingTradeAnimation(draft.id),
+    pendingTradeAnimation: tradeAnimation,
   };
 }
 
