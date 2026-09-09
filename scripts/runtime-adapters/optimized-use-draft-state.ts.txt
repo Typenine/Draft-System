@@ -14,15 +14,41 @@ const emptyState: DraftState = {
   availablePlayers: [],
 };
 
+const MIN_LIVE_POLL_MS = 3000;
+const ACTIVE_PAUSE_POLL_MS = 3000;
+const ACTIVE_PAUSE_REASONS = new Set([
+  'pending_pick',
+  'pick_animation',
+  'trade_animation',
+  'end_draft_animation',
+  'round_end',
+]);
+
 type LiveStatePayload = Partial<DraftState> & { revision?: string };
 
 function mergeLiveState(previous: DraftState, incoming: LiveStatePayload): DraftState {
   if (incoming.configured === false) return { ...emptyState, ...incoming } as DraftState;
-  const next = { ...previous, ...incoming, players: previous.players } as DraftState;
+  const next = {
+    ...previous,
+    ...incoming,
+    teams: incoming.teams?.length ? incoming.teams : previous.teams,
+    players: previous.players,
+    slots: incoming.slots?.length ? incoming.slots : previous.slots,
+    settings: incoming.settings ?? previous.settings,
+    branding: incoming.branding ?? previous.branding,
+  } as DraftState;
   const pickedIds = new Set((next.picks || []).map((pick) => pick.playerId));
   if (next.pendingPick?.playerId) pickedIds.add(next.pendingPick.playerId);
   next.availablePlayers = previous.players.filter((player) => !pickedIds.has(player.id));
   return next;
+}
+
+function pollDelay(state: DraftState, requestedMs: number): number | null {
+  const draft = state.draft;
+  if (!draft) return null;
+  if (draft.status === 'LIVE') return Math.max(MIN_LIVE_POLL_MS, requestedMs);
+  if (draft.status === 'PAUSED' && ACTIVE_PAUSE_REASONS.has(draft.pauseReason || '')) return ACTIVE_PAUSE_POLL_MS;
+  return null;
 }
 
 export function useDraftState(intervalMs = 1500) {
@@ -71,16 +97,16 @@ export function useDraftState(intervalMs = 1500) {
     let timer: number | null = null;
     let cancelled = false;
 
+    const clearTimer = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = null;
+    };
+
     const schedule = () => {
+      clearTimer();
       if (cancelled || document.hidden) return;
-      const status = state.draft?.status;
-      const delay = status === 'LIVE'
-        ? Math.max(900, intervalMs)
-        : status === 'PAUSED'
-          ? 2200
-          : status === 'COMPLETED'
-            ? 10000
-            : 5000;
+      const delay = pollDelay(state, intervalMs);
+      if (delay == null) return;
       timer = window.setTimeout(async () => {
         await refreshLive();
         schedule();
@@ -88,21 +114,18 @@ export function useDraftState(intervalMs = 1500) {
     };
 
     const onVisibility = () => {
-      if (timer) window.clearTimeout(timer);
-      timer = null;
-      if (!document.hidden) {
-        void refreshLive().finally(schedule);
-      }
+      clearTimer();
+      if (!document.hidden) void refreshLive().finally(schedule);
     };
 
     schedule();
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       cancelled = true;
-      if (timer) window.clearTimeout(timer);
+      clearTimer();
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [intervalMs, refreshLive, state.draft?.status]);
+  }, [intervalMs, refreshLive, state.draft?.pauseReason, state.draft?.status]);
 
   return { state, loading, error, refresh };
 }
